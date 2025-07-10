@@ -23,7 +23,7 @@ exports.handleStart = async (ctx) => {
   }
 
   ctx.replyWithMarkdown(
-    `🔐 *VPN подписка: ${process.primer.env.VPN_PRICE} руб/мес*\n\n` +
+    `🔐 *VPN подписка: ${process.env.VPN_PRICE} руб/мес*\n\n` +
     `${paymentDetails(id)}\n\n` +
     '_После оплаты отправьте скриншот чека_',
     { disable_web_page_preview: true }
