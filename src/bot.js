@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: 'primer.env' });
 const { Telegraf } = require('telegraf');
 const connectDB = require('./config/db');
 const { handleStart } = require('./controllers/userController');
