@@ -1,7 +1,7 @@
 const User = require('../models/User');
 
 exports.checkPayments = async (ctx) => {
-  if (ctx.from.id !== parseInt(process.primer.env.ADMIN_ID)) {
+  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 
@@ -20,7 +20,7 @@ exports.checkPayments = async (ctx) => {
 };
 
 exports.stats = async (ctx) => {
-  if (ctx.from.id !== parseInt(process.primer.env.ADMIN_ID)) {
+  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 

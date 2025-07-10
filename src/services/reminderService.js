@@ -7,7 +7,7 @@ exports.setupReminders = (bot) => {
     const users = await User.find({
       status: 'active',
       expireDate: { 
-        $lte: new Date(Date.now() + process.primer.env.REMIND_DAYS * 86400000),
+        $lte: new Date(Date.now() + process.env.REMIND_DAYS * 86400000),
         $gt: new Date()
       }
     });
@@ -19,7 +19,7 @@ exports.setupReminders = (bot) => {
         await bot.telegram.sendMessage(
           user.userId,
           `⚠️ *Ваша подписка истекает через ${daysLeft} дней!*\n\n` +
-          `Продлите VPN за ${process.primer.env.VPN_PRICE} руб.\n\n` +
+          `Продлите VPN за ${process.env.VPN_PRICE} руб.\n\n` +
           paymentDetails(user.userId),
           { parse_mode: 'Markdown' }
         );
