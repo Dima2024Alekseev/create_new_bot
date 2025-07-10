@@ -6,7 +6,7 @@ const { handlePhoto, handleApprove, handleReject } = require('./controllers/paym
 const { checkPayments, stats } = require('./controllers/adminController');
 const { setupReminders } = require('./services/reminderService');
 
-const bot = new Telegraf(process.primer.env.BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN);
 connectDB();
 
 // Обработчики
