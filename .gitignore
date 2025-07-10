@@ -1,0 +1,13 @@
+# Файлы окружения
+.env
+.env.local
+
+# Логи
+*.log
+
+# node_modules
+node_modules/
+
+# IDE
+.idea/
+.vscode/
