@@ -4,7 +4,7 @@ const { Markup } = require('telegraf');
 exports.handlePhoto = async (ctx) => {
   const { id, first_name, username } = ctx.from;
   
-  if (id === parseInt(process.env.ADMIN_ID)) {
+  if (id === parseInt(process.primer.env.ADMIN_ID)) {
     return ctx.reply('Вы админ, скриншоты не требуются');
   }
 
@@ -29,7 +29,7 @@ exports.handlePhoto = async (ctx) => {
   ]);
 
   await ctx.telegram.sendPhoto(
-    process.env.ADMIN_ID,
+    process.primer.primer.env.ADMIN_ID,
     photo.file_id,
     {
       caption: `📸 Новый платёж от ${first_name} (@${username || 'нет'})\nID: ${id}`,

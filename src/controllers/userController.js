@@ -4,7 +4,7 @@ const { paymentDetails } = require('../utils/helpers');
 exports.handleStart = async (ctx) => {
   const { id, first_name, last_name, username } = ctx.from;
   
-  if (id === parseInt(process.env.ADMIN_ID)) {
+  if (id === parseInt(process.primer.env.ADMIN_ID)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
       'Команды:\n' +
@@ -23,7 +23,7 @@ exports.handleStart = async (ctx) => {
   }
 
   ctx.replyWithMarkdown(
-    `🔐 *VPN подписка: ${process.env.VPN_PRICE} руб/мес*\n\n` +
+    `🔐 *VPN подписка: ${process.primer.primer.env.VPN_PRICE} руб/мес*\n\n` +
     `${paymentDetails(id)}\n\n` +
     '_После оплаты отправьте скриншот чека_',
     { disable_web_page_preview: true }
