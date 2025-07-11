@@ -16,7 +16,6 @@ exports.handleStart = async (ctx) => {
     );
   }
 
-  // Остальной код остается без изменений
   const user = await User.findOne({ userId: id });
   
   if (user?.status === 'active') {

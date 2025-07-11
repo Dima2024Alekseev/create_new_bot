@@ -5,10 +5,10 @@ const Question = require('../models/Question');
 const adminModes = {};
 
 // Проверка прав администратора с учетом режима
-function checkAdmin(ctx) {
+exports.checkAdmin = (ctx) => {
   return ctx.from.id === parseInt(process.env.ADMIN_ID) && 
          (!adminModes[ctx.from.id] || adminModes[ctx.from.id] === 'admin');
-}
+};
 
 // Переключение режима
 exports.switchMode = async (ctx) => {
@@ -29,7 +29,7 @@ exports.switchMode = async (ctx) => {
 };
 
 exports.checkPayments = async (ctx) => {
-  if (!checkAdmin(ctx)) {
+  if (!exports.checkAdmin(ctx)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 
@@ -66,7 +66,7 @@ exports.checkPayments = async (ctx) => {
 };
 
 exports.stats = async (ctx) => {
-  if (!checkAdmin(ctx)) {
+  if (!exports.checkAdmin(ctx)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 
