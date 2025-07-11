@@ -11,21 +11,25 @@ const userSchema = new mongoose.Schema({
   paymentPhotoId: String,
   status: {
     type: String,
-    enum: ['active', 'pending', 'rejected', 'inactive'], // Добавил 'inactive' для ясности
-    default: 'inactive', // По умолчанию пользователь неактивен
+    enum: ['active', 'pending', 'rejected', 'inactive'],
+    default: 'inactive',
   },
   expireDate: {
     type: Date,
     default: null,
   },
-  // НОВОЕ ПОЛЕ: Количество подписок/продлений
   subscriptionCount: {
     type: Number,
-    default: 0, // По умолчанию 0, будет увеличиваться при каждом одобрении платежа
+    default: 0,
   },
-  isAdmin: { // Добавил, если у вас есть такое поле для админ-режима
+  isAdmin: {
     type: Boolean,
     default: false,
+  },
+  // НОВОЕ ПОЛЕ: Флаг успешной настройки VPN
+  vpnConfigured: {
+    type: Boolean,
+    default: false, // По умолчанию пользователь еще не настроил VPN
   }
 });
 

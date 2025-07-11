@@ -2,12 +2,13 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo } = require('./controllers/userController');
+const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo, handleVpnConfigured } = require('./controllers/userController'); // Импортируем новую функцию
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, switchMode } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
-const { checkAdmin } = require('./controllers/adminController');
+const { checkAdmin } = require('./controllers/adminController'); // Убедимся, что checkAdmin импортирован
+const { Markup } = require('telegraf'); // Добавим Markup для использования здесь
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: { 
@@ -34,12 +35,11 @@ process.on('uncaughtException', async (err) => {
 
 // ===== Middleware для ответов АДМИНА и отправки инструкций =====
 bot.use(async (ctx, next) => {
-  // Добавляем общее логирование для всех сообщений, приходящих в middleware
   console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
   console.log(`[Middleware Debug] awaitinAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
   console.log(`[Middleware Debug] awaitingVpnFileFor: ${ctx.session?.awaitingVpnFileFor}`);
   console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
-  console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`); // Показывает, какие поля есть в ctx.message
+  console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`);
 
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // 1. Обработка ответа на вопрос
@@ -60,15 +60,14 @@ bot.use(async (ctx, next) => {
         });
         await ctx.reply(`✅ Файл конфигурации успешно отправлен пользователю ${targetUserId}.`);
         
-        // После отправки файла, просим отправить видео
-        ctx.session.awaitingVpnFileFor = null; // Сбрасываем состояние файла
-        ctx.session.awaitingVpnVideoFor = targetUserId; // Устанавливаем ожидание видео для этого же пользователя
+        ctx.session.awaitingVpnFileFor = null;
+        ctx.session.awaitingVpnVideoFor = targetUserId;
         await ctx.reply('Теперь, пожалуйста, загрузите видеоинструкцию для этого пользователя:');
-        return; // Завершаем обработку
+        return;
       } catch (error) {
         console.error(`Ошибка при отправке файла пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке файла пользователю ${targetUserId}.`);
-        ctx.session.awaitingVpnFileFor = null; // Сбрасываем состояние при ошибке
+        ctx.session.awaitingVpnFileFor = null;
         ctx.session.awaitingVpnVideoFor = null;
         return;
       }
@@ -78,11 +77,21 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingVpnVideoFor && ctx.message?.video) {
       const targetUserId = ctx.session.awaitingVpnVideoFor;
       try {
-        console.log(`[AdminMiddleware] Отправка видео пользователю ${targetUserId}`); // Добавлено логирование
+        console.log(`[AdminMiddleware] Отправка видео пользователю ${targetUserId}`);
         await ctx.telegram.sendVideo(targetUserId, ctx.message.video.file_id, {
           caption: '🎬 Видеоинструкция по настройке VPN:'
         });
         await ctx.reply(`✅ Видеоинструкция успешно отправлена пользователю ${targetUserId}.`);
+
+        // НОВОЕ: Отправляем кнопку "Успешно настроил" после отправки видео
+        await ctx.telegram.sendMessage(
+            targetUserId,
+            'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже:',
+            Markup.inlineKeyboard([
+                Markup.button.callback('✅ Успешно настроил', `vpn_configured_${targetUserId}`)
+            ])
+        );
+
       } catch (error) {
         console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
@@ -91,10 +100,8 @@ bot.use(async (ctx, next) => {
       }
       return; // Завершаем обработку
     }
-    // Если сообщение от админа, но не соответствует ожидаемым состояниям, передаем дальше
-    // Это важно, чтобы админ мог отправлять обычные текстовые сообщения или команды
-    // без того, чтобы они "поглощались" этими блоками.
-    if (ctx.message) { // Убедимся, что это не callback_query без сообщения
+    
+    if (ctx.message) {
         console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
     }
   }
@@ -103,8 +110,6 @@ bot.use(async (ctx, next) => {
 
 // ===== Обработчики команд =====
 bot.start(handleStart);
-// Этот обработчик должен быть ПОСЛЕ middleware для ответов админа и отправки инструкций
-// Иначе он может "поглотить" текстовые сообщения, если они не являются файлами/видео
 bot.hears(/^[^\/].*/, handleQuestion); 
 
 // Админские
@@ -134,14 +139,13 @@ bot.action(/answer_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-// ОБНОВЛЕННЫЙ ОБРАБОТЧИК КНОПКИ "ОТПРАВИТЬ ИНСТРУКЦИЮ" для админа
 bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
   const targetUserId = ctx.match[1];
-  ctx.session.awaitingVpnFileFor = targetUserId; // Устанавливаем ожидание файла для этого пользователя
-  ctx.session.awaitingVpnVideoFor = null; // Убедимся, что видео пока не ждем
+  ctx.session.awaitingVpnFileFor = targetUserId;
+  ctx.session.awaitingVpnVideoFor = null;
   await ctx.reply(`Загрузите *файл* конфигурации (например, .ovpn) для пользователя ${targetUserId}:`);
   await ctx.answerCbQuery();
 });
@@ -151,6 +155,8 @@ bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
+// НОВЫЙ ОБРАБОТЧИК КНОПКИ "УСПЕШНО НАСТРОИЛ"
+bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 
 
 // ===== Напоминания =====
