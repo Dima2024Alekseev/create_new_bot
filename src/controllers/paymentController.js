@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('./adminController');
-const { formatDate } = require('../utils/helpers'); // Убедитесь, что formatDate импортирован
+const { formatDate } = require('../utils/helpers');
 
 exports.handlePhoto = async (ctx) => {
   const { id, first_name, username } = ctx.from;
@@ -43,35 +43,38 @@ exports.handleApprove = async (ctx) => {
   }
   const userId = parseInt(ctx.match[1]);
 
-  // Сначала найдем пользователя, чтобы проверить его текущую expireDate
   const user = await User.findOne({ userId });
 
-  let newExpireDate = new Date(); // По умолчанию: текущая дата
+  let newExpireDate = new Date(); 
 
   if (user && user.expireDate && user.expireDate > new Date()) {
-    // Если есть активная подписка, продлеваем от ее текущей даты окончания
-    newExpireDate = new Date(user.expireDate); // Важно: создаем новую дату, чтобы не изменять оригинальную ссылку
+    newExpireDate = new Date(user.expireDate); 
   }
   
-  // Добавляем один месяц к выбранной базовой дате
   newExpireDate.setMonth(newExpireDate.getMonth() + 1);
-  newExpireDate.setHours(23, 59, 59, 999); // Устанавливаем на конец дня
+  newExpireDate.setHours(23, 59, 59, 999);
 
   await User.findOneAndUpdate(
     { userId },
     {
       status: 'active',
-      expireDate: newExpireDate, // Используем рассчитанную newExpireDate
-      // Опционально, вы можете сбросить paymentPhotoId или другие поля здесь
-      paymentPhotoId: null // Очищаем фото платежа после одобрения
+      expireDate: newExpireDate,
+      paymentPhotoId: null 
     },
-    { new: true } // Возвращаем обновленный документ
+    { new: true }
   );
+
+  // Добавляем кнопку "Получить файл и инструкцию"
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
+  ]);
 
   await ctx.telegram.sendMessage(
     userId,
     `🎉 Платёж подтверждён!\n\n` +
-    `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n` // Используем formatDate с временем
+    `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n` +
+    `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`,
+    keyboard
   );
   await ctx.answerCbQuery('✅ Платёж принят');
   await ctx.deleteMessage();

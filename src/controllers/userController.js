@@ -6,7 +6,6 @@ const { Markup } = require('telegraf');
 exports.handleStart = async (ctx) => {
   const { id, first_name } = ctx.from;
   
-  // Проверяем режим админа
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
@@ -28,13 +27,11 @@ exports.handleStart = async (ctx) => {
     );
   }
 
-  // Логика для обычных пользователей
   const user = await User.findOne({ userId: id });
 
   let message = '';
   let keyboardButtons = [];
 
-  // Флаг, указывающий, есть ли у пользователя активная или ожидающая подписка
   const hasActiveOrPendingSubscription = user?.status === 'active' || user?.status === 'pending';
 
   if (user?.status === 'active' && user.expireDate) {
@@ -48,21 +45,23 @@ exports.handleStart = async (ctx) => {
     }
     
     keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
+    
+    // Добавляем кнопку "Получить файл и инструкцию" здесь, если статус "active"
+    // Это нужно, если пользователь потерял сообщение после оплаты или хочет получить еще раз
+    keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${id}` }]);
+
   } else {
-    // Если подписки нет, просрочена или в другом статусе
     message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
               `${paymentDetails(id, first_name)}\n\n` +
               '_После оплаты отправьте скриншот чека_';
   }
   
-  // Добавляем кнопку "Посмотреть срок действия подписки" только если есть активная/ожидающая подписка
   if (hasActiveOrPendingSubscription) {
     keyboardButtons.push(
       [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
     );
   }
 
-  // Кнопка "Задать вопрос" всегда доступна
   keyboardButtons.push(
     [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
   );
@@ -78,12 +77,10 @@ exports.handleStart = async (ctx) => {
   );
 };
 
-// Новая функция для обработки запроса на проверку срока действия
 exports.checkSubscriptionStatus = async (ctx) => {
   const { id, first_name } = ctx.from;
   const user = await User.findOne({ userId: id });
 
-  // Дополнительная проверка на всякий случай, если пользователь вызвал callback без кнопки
   if (!user || (user.status !== 'active' && user.status !== 'pending')) {
     await ctx.replyWithMarkdown(
       `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
@@ -91,7 +88,7 @@ exports.checkSubscriptionStatus = async (ctx) => {
       '_После оплаты отправьте скриншот чека_',
       { disable_web_page_preview: true }
     );
-    return ctx.answerCbQuery(); // Закрываем всплывающее уведомление и завершаем
+    return ctx.answerCbQuery();
   }
 
   if (user?.status === 'active' && user.expireDate) {
@@ -110,8 +107,6 @@ exports.checkSubscriptionStatus = async (ctx) => {
   } else if (user?.status === 'rejected') {
     await ctx.reply('❌ Ваша последняя заявка на оплату была отклонена. Пожалуйста, отправьте новый скриншот.');
   } else {
-    // Этот блок по идее не должен быть достигнут, т.к. мы уже проверяем выше
-    // Но оставим его как запасной вариант для полной обработки всех статусов
     await ctx.replyWithMarkdown(
       `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
       `${paymentDetails(id, first_name)}\n\n` +
@@ -119,10 +114,9 @@ exports.checkSubscriptionStatus = async (ctx) => {
       { disable_web_page_preview: true }
     );
   }
-  await ctx.answerCbQuery(); // Закрываем всплывающее уведомление
+  await ctx.answerCbQuery();
 };
 
-// Функция для обработки нажатия кнопки "Продлить подписку" (можно направить на /start)
 exports.extendSubscription = async (ctx) => {
   const { id, first_name } = ctx.from;
   await ctx.replyWithMarkdown(
@@ -135,8 +129,31 @@ exports.extendSubscription = async (ctx) => {
   await ctx.answerCbQuery();
 };
 
-// Функция для обработки нажатия кнопки "Задать вопрос"
 exports.promptForQuestion = async (ctx) => {
   await ctx.reply('✍️ Напишите ваш вопрос в следующем сообщении. Я передам его администратору.');
+  await ctx.answerCbQuery();
+};
+
+// НОВАЯ ФУНКЦИЯ: Запрос на отправку VPN-инструкции
+exports.requestVpnInfo = async (ctx) => {
+  const userId = parseInt(ctx.match[1]); // ID пользователя, который запросил инструкцию
+  const user = await User.findOne({ userId });
+
+  if (!user || user.status !== 'active') {
+    // Если пользователь неактивен, не отправляем запрос админу
+    await ctx.reply('⚠️ Вы не можете запросить инструкцию, так как ваша подписка не активна.');
+    return ctx.answerCbQuery();
+  }
+
+  // Уведомляем администратора о запросе
+  await ctx.telegram.sendMessage(
+    process.env.ADMIN_ID,
+    `🔔 Пользователь ${user.firstName || user.username || 'Без имени'} (ID: ${userId}) запросил файл конфигурации и видеоинструкцию.`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback('➡️ Отправить инструкцию', `send_instruction_to_${userId}`)]
+    ])
+  );
+
+  await ctx.reply('✅ Ваш запрос на получение инструкции отправлен администратору. Он вышлет вам необходимые файлы в ближайшее время.');
   await ctx.answerCbQuery();
 };

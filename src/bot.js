@@ -2,11 +2,12 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion } = require('./controllers/userController'); // Импортируем новые функции
+const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo } = require('./controllers/userController'); // Импортируем новую функцию
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, switchMode } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
+const { checkAdmin } = require('./controllers/adminController'); // Убедимся, что checkAdmin импортирован
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
@@ -35,25 +36,46 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// ===== Middleware для ответов АДМИНА (ПЕРЕМЕЩЕНО ВЫШЕ) =====
-// Этот middleware должен срабатывать ПЕРВЫМ для админа, чтобы перехватить его ответы
+// ===== Middleware для ответов АДМИНА и отправки инструкций =====
 bot.use(async (ctx, next) => {
-  // Проверяем, если это админ и он ожидает ответа
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    // 1. Обработка ответа на вопрос
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
-      console.log(`[AdminMiddleware] Обработка ответа для пользователя ${ctx.session.awaitingAnswerFor}`);
+      console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
       await handleAnswer(ctx, ctx.session.awaitingAnswerFor, ctx.message.text);
-      ctx.session.awaitingAnswerFor = null; // Сбрасываем состояние
-      return; // Важно: завершаем обработку, чтобы сообщение не попало в другие обработчики
+      ctx.session.awaitingAnswerFor = null;
+      return;
+    }
+    // 2. Обработка отправки файла/видеоинструкции
+    if (ctx.session?.awaitingVpnInfoFor && (ctx.message?.document || ctx.message?.video)) {
+      const targetUserId = ctx.session.awaitingVpnInfoFor;
+      try {
+        if (ctx.message.document) {
+          await ctx.telegram.sendDocument(targetUserId, ctx.message.document.file_id, {
+            caption: '📁 Ваш файл конфигурации VPN:'
+          });
+          await ctx.reply(`✅ Файл успешно отправлен пользователю ${targetUserId}.`);
+        } else if (ctx.message.video) {
+          await ctx.telegram.sendVideo(targetUserId, ctx.message.video.file_id, {
+            caption: '🎬 Видеоинструкция по настройке VPN:'
+          });
+          await ctx.reply(`✅ Видеоинструкция успешно отправлена пользователю ${targetUserId}.`);
+        }
+      } catch (error) {
+        console.error(`Ошибка при отправке инструкции пользователю ${targetUserId}:`, error);
+        await ctx.reply(`⚠️ Произошла ошибка при отправке инструкции пользователю ${targetUserId}.`);
+      } finally {
+        ctx.session.awaitingVpnInfoFor = null; // Сбрасываем состояние
+      }
+      return; // Завершаем обработку
     }
   }
-  return next(); // Передаем управление следующему обработчику
+  return next();
 });
 
 // ===== Обработчики команд =====
 // Пользовательские
 bot.start(handleStart);
-// Этот обработчик должен быть ПОСЛЕ middleware для ответов админа
 bot.hears(/^[^\/].*/, handleQuestion);
 
 // Админские
@@ -71,23 +93,35 @@ bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('switch_mode', switchMode);
-bot.action('check_payments_admin', checkPayments); // Новая кнопка для админа
-bot.action('show_stats_admin', stats); // Новая кнопка для админа
+bot.action('check_payments_admin', checkPayments);
+bot.action('show_stats_admin', stats);
 
 bot.action(/answer_(\d+)/, async (ctx) => {
-  // Проверяем, что запрос на ответ пришел от админа
-  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
-    return ctx.answerCbQuery('🚫 Доступ только для админа');
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
   }
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
-  await ctx.answerCbQuery(); // Закрываем всплывающее уведомление о нажатии кнопки
+  await ctx.answerCbQuery();
+});
+
+// НОВЫЙ ОБРАБОТЧИК КНОПКИ "ОТПРАВИТЬ ИНСТРУКЦИЮ" для админа
+bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const targetUserId = ctx.match[1];
+  ctx.session.awaitingVpnInfoFor = targetUserId; // Устанавливаем, кому админ собирается отправить инструкцию
+  await ctx.reply(`Загрузите файл (например, .ovpn) или видеоинструкцию для пользователя ${targetUserId}:`);
+  await ctx.answerCbQuery();
 });
 
 // Кнопки пользователя
-bot.action('check_subscription', checkSubscriptionStatus); // Обработчик для кнопки "Посмотреть срок действия"
-bot.action('ask_question', promptForQuestion); // Обработчик для кнопки "Задать вопрос"
-bot.action('extend_subscription', extendSubscription); // Обработчик для кнопки "Продлить подписку"
+bot.action('check_subscription', checkSubscriptionStatus);
+bot.action('ask_question', promptForQuestion);
+bot.action('extend_subscription', extendSubscription);
+// НОВЫЙ ОБРАБОТЧИК КНОПКИ "ПОЛУЧИТЬ ФАЙЛ И ИНСТРУКЦИЮ" для пользователя
+bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
 
 
 // ===== Напоминания =====
