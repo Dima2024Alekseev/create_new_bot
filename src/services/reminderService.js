@@ -9,12 +9,11 @@ exports.setupReminders = (bot) => {
         status: 'active',
         expireDate: { 
           $lte: new Date(Date.now() + process.env.REMIND_DAYS * 86400000),
-          $gt: new Date(),
           $gt: new Date() // Исключаем уже истекшие
         },
         $or: [
           { lastReminder: { $exists: false } },
-          { lastReminder: { $lt: new Date(Date.now() - 86400000) } // Не чаще 1 раза в день
+          { lastReminder: { $lt: new Date(Date.now() - 86400000) } }// Не чаще 1 раза в день
         ]
       });
 
