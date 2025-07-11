@@ -28,11 +28,18 @@ exports.formatDate = (date, withTime = false) => {
   return new Date(date).toLocaleString('ru-RU', options);
 };
 
-// Форматирование времени (дни:часы:минуты)
 exports.formatDuration = (ms) => {
   const days = Math.floor(ms / 86400000);
   const hours = Math.floor((ms % 86400000) / 3600000);
   const mins = Math.round((ms % 3600000) / 60000);
   
   return `${days}д ${hours}ч ${mins}м`;
+};
+
+exports.getUserMenuButtons = () => {
+  return [
+    [{ text: '📅 Срок действия', callback_data: 'check_subscription' }],
+    [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }],
+    [{ text: '📩 Мои ответы', callback_data: 'check_answers' }]
+  ];
 };

@@ -1,6 +1,7 @@
 const { Markup } = require('telegraf');
 const Question = require('../models/Question');
 const { checkAdmin } = require('./adminController');
+const { formatDate } = require('../utils/helpers');
 
 exports.handleQuestion = async (ctx) => {
   if (ctx.message.text.startsWith('/') || !ctx.message.text) return;
@@ -90,7 +91,11 @@ exports.listQuestions = async (ctx) => {
       message += `${i+1}. ${q.firstName} (@${q.username || 'нет'}):\n` +
                  `"${q.questionText}"\n` +
                  `Статус: ${q.status === 'answered' ? '✅ Отвечено' : '⏳ Ожидает'}\n` +
-                 `Дата: ${q.createdAt.toLocaleString()}\n\n`;
+                 `Дата: ${formatDate(q.createdAt)}\n\n`;
+      
+      if (q.status === 'answered') {
+        message += `Ответ: "${q.answerText}"\n\n`;
+      }
     });
 
     await ctx.reply(message, Markup.inlineKeyboard([
