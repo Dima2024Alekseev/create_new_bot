@@ -57,67 +57,72 @@ module.exports = {
   /**
    * Подтверждение платежа админом
    */
-  handleApprove: async (ctx) => {
+  const handleApprove = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
     const expireDate = new Date();
     expireDate.setDate(expireDate.getDate() + parseInt(process.env.VPN_DURATION));
-
+  
     try {
       const user = await User.findOne({ userId });
-
+  
       if (!user) {
-        return ctx.answerCbQuery('❌ Пользователь не найден');
+        await ctx.answerCbQuery('❌ Пользователь не найден');
+        return;
       }
-
+  
       let configMessage = '';
       
-      // Генерация конфига только для новых пользователей
-      if (!user.configGenerated) {
-        const vpnCredentials = await PaymentService.generateVpnCredentials(user);
-        
-        // Отправка конфига пользователю
-        await ctx.telegram.sendDocument(
-          userId,
-          { source: fs.createReadStream(vpnCredentials.configPath) },
-          {
-            caption: `🔐 Ваш конфигурационный файл WireGuard\n\n` +
-                     `Логин: ${vpnCredentials.username}\n` +
-                     `Пароль: ${vpnCredentials.password}\n\n` +
-                     `Срок действия: до ${formatDate(expireDate)}`
-          }
-        );
-
-        // Удаление временного файла
-        fs.unlinkSync(vpnCredentials.configPath);
-
-        configMessage = `\n\nКонфигурация WireGuard отправлена пользователю.`;
-        
-        // Обновление данных пользователя
+      try {
+        if (!user.configGenerated) {
+          const vpnCredentials = await PaymentService.generateVpnCredentials(user);
+          
+          await ctx.telegram.sendDocument(
+            userId,
+            { source: fs.createReadStream(vpnCredentials.configPath) },
+            {
+              caption: `🔐 Ваш конфигурационный файл WireGuard\n\n` +
+                       `Логин: ${vpnCredentials.username}\n` +
+                       `Пароль: ${vpnCredentials.password}\n\n` +
+                       `Срок действия: до ${expireDate.toLocaleDateString('ru-RU')}`
+            }
+          );
+  
+          fs.unlinkSync(vpnCredentials.configPath);
+  
+          configMessage = '\n\n✅ Конфигурация отправлена';
+          
+          await User.updateOne({ userId }, {
+            configGenerated: true,
+            wgUsername: vpnCredentials.username,
+            wgConfigSent: true
+          });
+        }
+  
         await User.updateOne({ userId }, {
-          configGenerated: true,
-          wgUsername: vpnCredentials.username,
-          wgConfigSent: true
+          status: 'active',
+          expireDate
         });
+  
+        await ctx.telegram.sendMessage(
+          userId,
+          `🎉 Ваш платёж подтверждён!\n\n` +
+          `Доступ к VPN активен до ${expireDate.toLocaleDateString('ru-RU')}`
+        );
+  
+        await ctx.answerCbQuery(`✅ Платёж принят${configMessage}`);
+      } catch (err) {
+        console.error('Error in approval process:', err);
+        await ctx.answerCbQuery('⚠️ Ошибка при отправке конфига');
+        await ctx.telegram.sendMessage(
+          process.env.ADMIN_ID,
+          `🚨 Ошибка при подтверждении платежа ${userId}\n` +
+          `Ошибка: ${err.message}`
+        );
+      } finally {
+        await ctx.deleteMessage();
       }
-
-      // Обновление подписки
-      await User.updateOne({ userId }, {
-        status: 'active',
-        expireDate,
-        lastReminder: null
-      });
-
-      await ctx.telegram.sendMessage(
-        userId,
-        `🎉 Ваш платёж подтверждён!\n\n` +
-        `Доступ к VPN активен до ${formatDate(expireDate)}\n` +
-        `Используйте полученный конфиг файл для подключения.`
-      );
-
-      await ctx.answerCbQuery(`✅ Платёж принят${configMessage}`);
-      await ctx.deleteMessage();
     } catch (err) {
-      console.error('Ошибка подтверждения платежа:', err);
+      console.error('Approve payment error:', err);
       await ctx.answerCbQuery('⚠️ Ошибка при подтверждении');
     }
   },

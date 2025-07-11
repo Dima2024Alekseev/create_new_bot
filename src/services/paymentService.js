@@ -4,22 +4,28 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 class PaymentService {
-  /**
-   * Генерация новых VPN-учетных данных через WG-Easy API
-   */
   static async generateVpnCredentials(user) {
     try {
       const username = `user_${user.userId}_${uuidv4().split('-')[0]}`;
       const password = this.generatePassword();
 
-      // 1. Создаем нового пользователя в WG-Easy
-      await axios.post(
+      console.log(`[WG-Easy] Creating user: ${username}`);
+
+      // 1. Создаем пользователя
+      const createResponse = await axios.post(
         `${process.env.WG_EASY_URL}/api/session`,
         { username, password },
-        { auth: this.getWgAuth() }
+        { 
+          auth: this.getWgAuth(),
+          timeout: 10000 // 10 секунд таймаут
+        }
       );
 
-      // 2. Получаем конфигурационный файл
+      if (!createResponse.data?.name) {
+        throw new Error('Invalid response from WG-Easy');
+      }
+
+      // 2. Получаем конфиг
       const configPath = await this.downloadConfig(username);
       
       return {
@@ -29,14 +35,15 @@ class PaymentService {
         configFile: `wg_${username}.conf`
       };
     } catch (err) {
-      console.error('WG-Easy API error:', err.response?.data || err.message);
-      throw new Error('Ошибка при генерации VPN конфигурации');
+      console.error('WG-Easy API error:', {
+        message: err.message,
+        response: err.response?.data,
+        url: err.config?.url
+      });
+      throw new Error(`Не удалось создать VPN конфигурацию: ${err.message}`);
     }
   }
 
-  /**
-   * Скачивание конфигурационного файла
-   */
   static async downloadConfig(username) {
     const configDir = path.join(__dirname, '../../temp_configs');
     if (!fs.existsSync(configDir)) {
@@ -50,7 +57,8 @@ class PaymentService {
         `${process.env.WG_EASY_URL}/api/wireguard/client/${username}/configuration`,
         {
           ...this.getWgAuth(),
-          responseType: 'stream'
+          responseType: 'stream',
+          timeout: 10000
         }
       );
 
@@ -58,11 +66,19 @@ class PaymentService {
       response.data.pipe(writer);
 
       return new Promise((resolve, reject) => {
-        writer.on('finish', () => resolve(configPath));
+        writer.on('finish', () => {
+          // Проверяем что файл содержит валидный конфиг
+          const content = fs.readFileSync(configPath, 'utf8');
+          if (!content.includes('[Interface]') || !content.includes('[Peer]')) {
+            fs.unlinkSync(configPath);
+            reject(new Error('Invalid config file content'));
+          } else {
+            resolve(configPath);
+          }
+        });
         writer.on('error', reject);
       });
     } catch (err) {
-      // Удаляем частично скачанный файл при ошибке
       if (fs.existsSync(configPath)) {
         fs.unlinkSync(configPath);
       }
@@ -70,41 +86,10 @@ class PaymentService {
     }
   }
 
-  /**
-   * Удаление пользователя из WG-Easy
-   */
-  static async removeUserFromWg(username) {
-    try {
-      await axios.delete(
-        `${process.env.WG_EASY_URL}/api/wireguard/client/${username}`,
-        { auth: this.getWgAuth() }
-      );
-      return true;
-    } catch (err) {
-      console.error('Ошибка удаления пользователя из WG-Easy:', err);
-      return false;
-    }
-  }
-
-  /**
-   * Проверка существования пользователя в WG-Easy
-   */
-  static async checkUserInWg(username) {
-    try {
-      await axios.get(
-        `${process.env.WG_EASY_URL}/api/wireguard/client/${username}`,
-        { auth: this.getWgAuth() }
-      );
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  /**
-   * Данные аутентификации для WG-Easy API
-   */
   static getWgAuth() {
+    if (!process.env.WG_EASY_USERNAME || !process.env.WG_EASY_PASSWORD) {
+      throw new Error('WG-Easy credentials not configured');
+    }
     return {
       auth: {
         username: process.env.WG_EASY_USERNAME,
@@ -113,12 +98,8 @@ class PaymentService {
     };
   }
 
-  /**
-   * Генерация случайного пароля
-   */
   static generatePassword() {
-    return Math.random().toString(36).slice(-8) + 
-           Math.random().toString(36).slice(-4);
+    return Math.random().toString(36).slice(-8);
   }
 }
 
