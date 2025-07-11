@@ -1,139 +1,123 @@
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const User = require('../models/User');
+const { formatDate, sendTelegramMessage } = require('../utils/helpers');
 
 class PaymentService {
-  static async getAuthToken() {
-    try {
-      const response = await axios.post(
-        `${process.env.WG_EASY_URL}/api/session`,
-        {
-          username: process.env.WG_EASY_USERNAME,
-          password: process.env.WG_EASY_PASSWORD
-        },
-        {
-          timeout: 10000,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      return response.data.token;
-    } catch (err) {
-      console.error('Auth error:', {
-        config: err.config,
-        response: err.response?.data
-      });
-      throw new Error('Ошибка аутентификации в WG-Easy');
-    }
+  /**
+   * Создание новой заявки на оплату
+   */
+  static async createPayment(userId, photoId, userData) {
+    return await User.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        ...userData,
+        paymentPhotoId: photoId,
+        status: 'pending',
+        startDate: new Date()
+      },
+      { upsert: true, new: true }
+    );
   }
 
-  static async generateVpnCredentials(user) {
-    try {
-      const username = `user_${user.userId}_${uuidv4().split('-')[0]}`;
-      const password = this.generatePassword();
-      const authToken = await this.getAuthToken();
+  /**
+   * Подтверждение платежа админом
+   */
+  static async approvePayment(userId) {
+    const expireDate = new Date();
+    expireDate.setMonth(expireDate.getMonth() + 1); // +1 месяц подписки
 
-      console.log(`Creating VPN user: ${username}`);
+    const user = await User.findOneAndUpdate(
+      { userId },
+      { 
+        status: 'active',
+        expireDate,
+        lastReminder: null // Сбрасываем напоминания
+      },
+      { new: true }
+    );
 
-      // Создание пользователя
-      const createResponse = await axios.post(
-        `${process.env.WG_EASY_URL}/api/users`,
-        { name: username, password },
-        {
-          timeout: 10000,
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+    if (!user) throw new Error('Пользователь не найден');
 
-      if (!createResponse.data?.name) {
-        throw new Error('Invalid user creation response');
-      }
+    // Генерация VPN-данных
+    const vpnCredentials = this.generateVpnCredentials(user);
 
-      // Получение конфига
-      const configPath = await this.downloadConfig(username, authToken);
-      
-      return {
-        username,
-        password,
-        configPath,
-        configFile: `wg_${username}.conf`
-      };
-    } catch (err) {
-      console.error('VPN Creation Error:', {
-        message: err.message,
-        stack: err.stack
-      });
-      throw new Error(`Не удалось создать VPN: ${err.message}`);
-    }
+    return {
+      user,
+      message: `🎉 Подписка активирована до ${formatDate(expireDate)}!\n\n` +
+               `Данные для подключения:\n` +
+               `Сервер: ${vpnCredentials.server}\n` +
+               `Логин: ${vpnCredentials.login}\n` +
+               `Пароль: ${vpnCredentials.password}`
+    };
   }
 
-  static async downloadConfig(username, authToken) {
-    const configDir = path.join(__dirname, '../../temp_configs');
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
-    }
+  /**
+   * Отклонение платежа
+   */
+  static async rejectPayment(userId) {
+    const user = await User.findOneAndUpdate(
+      { userId },
+      { status: 'rejected' },
+      { new: true }
+    );
 
-    const configPath = path.join(configDir, `wg_${username}.conf`);
-    
-    try {
-      const response = await axios.get(
-        `${process.env.WG_EASY_URL}/api/wireguard/client/${username}/configuration`,
-        {
-          responseType: 'stream',
-          timeout: 10000,
-          headers: {
-            'Authorization': `Bearer ${authToken}`
-          }
-        }
-      );
+    if (!user) throw new Error('Пользователь не найден');
 
-      const writer = fs.createWriteStream(configPath);
-      response.data.pipe(writer);
-
-      return new Promise((resolve, reject) => {
-        writer.on('finish', () => {
-          const content = fs.readFileSync(configPath, 'utf8');
-          if (!content.includes('[Interface]')) {
-            fs.unlinkSync(configPath);
-            reject(new Error('Invalid config content'));
-          } else {
-            resolve(configPath);
-          }
-        });
-        writer.on('error', reject);
-      });
-    } catch (err) {
-      if (fs.existsSync(configPath)) {
-        fs.unlinkSync(configPath);
-      }
-      throw err;
-    }
+    return {
+      user,
+      message: '❌ Платёж отклонён. Проверьте реквизиты и попробуйте снова.'
+    };
   }
 
+  /**
+   * Проверка активных подписок
+   */
+  static async checkActiveSubscriptions() {
+    return await User.find({
+      status: 'active',
+      expireDate: { $gt: new Date() }
+    });
+  }
+
+  /**
+   * Получение pending-заявок
+   */
+  static async getPendingPayments() {
+    return await User.find({ status: 'pending' });
+  }
+
+  /**
+   * Генерация VPN-данных
+   */
+  static generateVpnCredentials(user) {
+    return {
+      server: 'vpn.example.com',
+      login: user.username || `user${user.userId}`,
+      password: this.generatePassword(),
+      configLink: this.generateConfigLink(user.userId)
+    };
+  }
+
+  /**
+   * Генерация случайного пароля
+   */
   static generatePassword() {
-    return Math.random().toString(36).slice(-8);
+    return Math.random().toString(36).slice(-8) + 
+           Math.random().toString(36).slice(-8);
   }
 
-  static async removeUserFromWg(username) {
-    try {
-      const authToken = await this.getAuthToken();
-      await axios.delete(
-        `${process.env.WG_EASY_URL}/api/users/${username}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${authToken}`
-          }
-        }
-      );
-    } catch (err) {
-      console.error('User removal error:', err.message);
-      throw err;
-    }
+  /**
+   * Генерация ссылки на конфиг
+   */
+  static generateConfigLink(userId) {
+    return `https://api.vpn-service.com/config/${userId}/${this.generateToken()}`;
+  }
+
+  /**
+   * Генерация токена для доступа
+   */
+  static generateToken() {
+    return require('crypto').randomBytes(16).toString('hex');
   }
 }
 
