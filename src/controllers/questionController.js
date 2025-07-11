@@ -4,7 +4,13 @@ const { checkAdmin } = require('./adminController');
 const { formatDate } = require('../utils/helpers');
 
 exports.handleQuestion = async (ctx) => {
-  if (ctx.message.text.startsWith('/') || !ctx.message.text) return;
+  // Пропускаем команды и служебные сообщения
+  if (ctx.message.text.startsWith('/') || 
+      ctx.message.text === '📅 Срок действия подписки' ||
+      ctx.message.text === '❓ Задать вопрос' ||
+      ctx.message.text === '📩 Посмотреть ответы') {
+    return;
+  }
 
   try {
     await Question.create({
