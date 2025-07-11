@@ -5,12 +5,12 @@ const connectDB = require('./config/db');
 const { handleStart } = require('./controllers/userController');
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, switchMode } = require('./controllers/adminController');
-const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
+const { handleQuestion, handleAnswer } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
-  telegram: { 
+  telegram: {
     agent: null,
     handshakeTimeout: 30000
   }
@@ -36,32 +36,27 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// ===== Обработчики команд =====
-
-// Пользовательские
+// Обработчики команд
 bot.start(handleStart);
 bot.hears(/^[^\/].*/, handleQuestion);
 
-// Админские
+// Админские команды
 bot.command('check', checkPayments);
 bot.command('stats', stats);
-bot.command('questions', listQuestions);
 bot.command('switchmode', switchMode);
 
 // Обработка платежей
 bot.on('photo', handlePhoto);
 
-// ===== Кнопки =====
+// Обработчики кнопок
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
-bot.action('list_questions', listQuestions);
-bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
 });
 
-// ===== Middleware для ответов =====
+// Middleware для ответов
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
@@ -73,10 +68,10 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// ===== Напоминания =====
+// Напоминания
 setupReminders(bot);
 
-// ===== Запуск =====
+// Запуск бота
 bot.launch()
   .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
   .catch(err => {
