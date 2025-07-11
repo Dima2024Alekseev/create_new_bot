@@ -34,6 +34,13 @@ process.on('uncaughtException', async (err) => {
 
 // ===== Middleware для ответов АДМИНА и отправки инструкций =====
 bot.use(async (ctx, next) => {
+  // Добавляем общее логирование для всех сообщений, приходящих в middleware
+  console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
+  console.log(`[Middleware Debug] awaitinAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
+  console.log(`[Middleware Debug] awaitingVpnFileFor: ${ctx.session?.awaitingVpnFileFor}`);
+  console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
+  console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`); // Показывает, какие поля есть в ctx.message
+
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // 1. Обработка ответа на вопрос
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
@@ -47,6 +54,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingVpnFileFor && ctx.message?.document) {
       const targetUserId = ctx.session.awaitingVpnFileFor;
       try {
+        console.log(`[AdminMiddleware] Отправка файла пользователю ${targetUserId}`);
         await ctx.telegram.sendDocument(targetUserId, ctx.message.document.file_id, {
           caption: '📁 Ваш файл конфигурации VPN:'
         });
@@ -70,6 +78,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingVpnVideoFor && ctx.message?.video) {
       const targetUserId = ctx.session.awaitingVpnVideoFor;
       try {
+        console.log(`[AdminMiddleware] Отправка видео пользователю ${targetUserId}`); // Добавлено логирование
         await ctx.telegram.sendVideo(targetUserId, ctx.message.video.file_id, {
           caption: '🎬 Видеоинструкция по настройке VPN:'
         });
@@ -82,14 +91,21 @@ bot.use(async (ctx, next) => {
       }
       return; // Завершаем обработку
     }
-
+    // Если сообщение от админа, но не соответствует ожидаемым состояниям, передаем дальше
+    // Это важно, чтобы админ мог отправлять обычные текстовые сообщения или команды
+    // без того, чтобы они "поглощались" этими блоками.
+    if (ctx.message) { // Убедимся, что это не callback_query без сообщения
+        console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
+    }
   }
   return next();
 });
 
 // ===== Обработчики команд =====
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion);
+// Этот обработчик должен быть ПОСЛЕ middleware для ответов админа и отправки инструкций
+// Иначе он может "поглотить" текстовые сообщения, если они не являются файлами/видео
+bot.hears(/^[^\/].*/, handleQuestion); 
 
 // Админские
 bot.command('check', checkPayments);
