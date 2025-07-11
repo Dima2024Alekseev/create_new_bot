@@ -1,35 +1,18 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
+const { Markup } = require('telegraf');
 
-// Хранилище режимов админа
-const adminModes = {};
-
-// Проверка прав администратора с учетом режима
-exports.checkAdmin = (ctx) => {
-  return ctx.from.id === parseInt(process.env.ADMIN_ID) && 
-         (!adminModes[ctx.from.id] || adminModes[ctx.from.id] === 'admin');
-};
-
-// Переключение режима
-exports.switchMode = async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
-    return ctx.reply('🚫 Доступ только для админа');
-  }
-
-  const currentMode = adminModes[ctx.from.id] || 'admin';
-  const newMode = currentMode === 'admin' ? 'user' : 'admin';
-
-  adminModes[ctx.from.id] = newMode;
-
-  await ctx.reply(
-    `🔄 Режим изменен: ${newMode === 'admin' ? '👑 Администратор' : '👤 Обычный пользователь'}\n\n` +
-    `Теперь бот будет реагировать на вас как на ${newMode === 'admin' ? 'администратора' : 'обычного пользователя'}.\n\n` +
-    `Используйте /switchmode для обратного переключения.`
-  );
-};
+// Функция для создания клавиатуры с кнопками для администратора
+function getAdminKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('📋 Просмотр заявок', 'view_applications')],
+    [Markup.button.callback('📊 Статистика', 'view_stats')],
+    [Markup.button.callback('❓ Просмотреть вопросы', 'view_questions')]
+  ]);
+}
 
 exports.checkPayments = async (ctx) => {
-  if (!exports.checkAdmin(ctx)) {
+  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 
@@ -37,7 +20,7 @@ exports.checkPayments = async (ctx) => {
     const pendingUsers = await User.find({ status: 'pending' })
       .sort({ createdAt: 1 })
       .limit(50);
-    
+
     if (!pendingUsers.length) {
       return ctx.reply('ℹ️ Нет заявок на проверку');
     }
@@ -50,15 +33,7 @@ exports.checkPayments = async (ctx) => {
       message += `Дата: ${new Date(user.createdAt).toLocaleString('ru-RU')}\n\n`;
     });
 
-    const buttons = [];
-    if (pendingUsers.length > 10) {
-      buttons.push([{ text: '🗑 Очистить все', callback_data: 'clear_payments' }]);
-    }
-
-    await ctx.reply(message, {
-      reply_markup: { inline_keyboard: buttons }
-    });
-
+    await ctx.reply(message, getAdminKeyboard());
   } catch (err) {
     console.error('Ошибка при проверке платежей:', err);
     await ctx.reply('⚠️ Произошла ошибка при загрузке данных');
@@ -66,11 +41,9 @@ exports.checkPayments = async (ctx) => {
 };
 
 exports.stats = async (ctx) => {
-  if (!exports.checkAdmin(ctx)) {
+  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
-
-  const currentMode = adminModes[ctx.from.id] || 'admin';
 
   try {
     const [usersStats, questionsStats, expiringSoon] = await Promise.all([
@@ -80,14 +53,14 @@ exports.stats = async (ctx) => {
       Question.aggregate([
         { $group: { _id: '$status', count: { $sum: 1 } } }
       ]),
-      User.find({ 
+      User.find({
         status: 'active',
         expireDate: { $lt: new Date(Date.now() + 7 * 86400000) }
       }).sort({ expireDate: 1 }).limit(5)
     ]);
 
     let statsText = '📊 *Статистика бота*\n\n';
-    
+
     statsText += '👤 *Пользователи:*\n';
     usersStats.forEach(stat => {
       statsText += `- ${stat._id}: ${stat.count}\n`;
@@ -108,19 +81,36 @@ exports.stats = async (ctx) => {
       statsText += 'Нет подписок, истекающих в ближайшую неделю\n';
     }
 
-    statsText += `\nТекущий режим: ${currentMode === 'admin' ? '👑 Админ' : '👤 Пользователь'}`;
-
     await ctx.replyWithMarkdown(statsText, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }],
-          [{ text: '🔀 Сменить режим', callback_data: 'switch_mode' }]
-        ]
-      }
+      reply_markup: getAdminKeyboard()
     });
-
   } catch (err) {
     console.error('Ошибка при формировании статистики:', err);
     await ctx.reply('⚠️ Произошла ошибка при загрузке статистики');
+  }
+};
+
+exports.listQuestions = async (ctx) => {
+  try {
+    const questions = await Question.find()
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    if (!questions.length) {
+      return ctx.reply('ℹ️ Нет вопросов в базе');
+    }
+
+    let message = '📋 Последние вопросы:\n\n';
+    questions.forEach((q, i) => {
+      message += `${i+1}. ${q.firstName} (@${q.username || 'нет'}):\n` +
+                 `"${q.questionText}"\n` +
+                 `Статус: ${q.status === 'answered' ? '✅ Отвечено' : '⏳ Ожидает'}\n` +
+                 `Дата: ${q.createdAt.toLocaleString()}\n\n`;
+    });
+
+    await ctx.reply(message, getAdminKeyboard());
+  } catch (err) {
+    console.error('Ошибка получения списка вопросов:', err);
+    await ctx.reply('⚠️ Не удалось загрузить вопросы');
   }
 };
