@@ -4,13 +4,13 @@ const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const { handleStart } = require('./controllers/userController');
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats, listQuestions } = require('./controllers/adminController');
-const { handleQuestion, handleAnswer } = require('./controllers/questionController');
+const { checkPayments, stats, switchMode } = require('./controllers/adminController');
+const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
-  telegram: {
+  telegram: { 
     agent: null,
     handshakeTimeout: 30000
   }
@@ -37,41 +37,25 @@ process.on('uncaughtException', async (err) => {
 });
 
 // ===== Обработчики команд =====
+
 // Пользовательские
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion); // Все текстовые сообщения -> вопросы
+bot.hears(/^[^\/].*/, handleQuestion);
 
 // Админские
-bot.command('admin', async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
-    return ctx.reply('🚫 Доступ только для админа');
-  }
-
-  await ctx.reply('👋 Добро пожаловать в админ-панель!', getAdminKeyboard());
-});
-
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
+bot.command('switchmode', switchMode);
 
 // Обработка платежей
 bot.on('photo', handlePhoto);
 
 // ===== Кнопки =====
-bot.action('view_applications', async (ctx) => {
-  await checkPayments(ctx);
-});
-
-bot.action('view_stats', async (ctx) => {
-  await stats(ctx);
-});
-
-bot.action('view_questions', async (ctx) => {
-  await listQuestions(ctx);
-});
-
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
+bot.action('list_questions', listQuestions);
+bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
@@ -114,3 +98,4 @@ bot.launch()
     }
   });
 });
+//dcdc
