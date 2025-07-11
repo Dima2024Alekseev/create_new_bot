@@ -7,13 +7,16 @@ const userSchema = new Schema({
   lastName: String,
   status: { 
     type: String, 
-    enum: ['pending', 'active', 'rejected'], 
+    enum: ['pending', 'active', 'rejected', 'expired'], 
     default: 'pending' 
   },
   paymentPhotoId: String,
   startDate: { type: Date, default: Date.now },
   expireDate: Date,
-  lastReminder: Date
+  lastReminder: Date,
+  configGenerated: { type: Boolean, default: false },
+  wgUsername: String,
+  wgConfigSent: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = model('User', userSchema);

@@ -1,12 +1,22 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const connectDB = require('./config/db');
 const { handleStart } = require('./controllers/userController');
-const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
+const { handlePhoto, handleApprove, handleReject, handleGetConfig } = require('./controllers/paymentController');
 const { checkPayments, stats } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
+const PaymentService = require('./services/paymentService');
+
+// Проверка и создание временной папки для конфигов
+const tempDir = path.join(__dirname, 'temp_configs');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
@@ -25,6 +35,22 @@ connectDB().catch(err => {
   process.exit(1);
 });
 
+// Проверка подключения к WG-Easy
+async function checkWgEasyConnection() {
+  try {
+    await axios.get(`${process.env.WG_EASY_URL}/api/session`, {
+      auth: {
+        username: process.env.WG_EASY_USERNAME,
+        password: process.env.WG_EASY_PASSWORD
+      }
+    });
+    console.log('✅ WG-Easy подключен');
+  } catch (err) {
+    console.error('❌ Ошибка подключения к WG-Easy:', err.message);
+    process.exit(1);
+  }
+}
+
 // Глобальные обработчики ошибок
 process.on('unhandledRejection', (err) => {
   console.error('⚠️ Unhandled Rejection:', err);
@@ -40,7 +66,8 @@ process.on('uncaughtException', async (err) => {
 
 // Пользовательские
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion); // Все текстовые сообщения -> вопросы
+bot.command('getconfig', handleGetConfig);
+bot.hears(/^[^\/].*/, handleQuestion);
 
 // Админские
 bot.command('check', checkPayments);
@@ -75,12 +102,18 @@ bot.use(async (ctx, next) => {
 setupReminders(bot);
 
 // ===== Запуск =====
-bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
-  .catch(err => {
-    console.error('🚨 Ошибка запуска:', err);
-    process.exit(1);
-  });
+async function startBot() {
+  await checkWgEasyConnection();
+  
+  bot.launch()
+    .then(() => console.log('🤖 Бот запущен (Q&A + Payments + WG)'))
+    .catch(err => {
+      console.error('🚨 Ошибка запуска:', err);
+      process.exit(1);
+    });
+}
+
+startBot();
 
 // Graceful shutdown
 ['SIGINT', 'SIGTERM'].forEach(signal => {
