@@ -2,7 +2,7 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const { handleStart } = require('./controllers/userController');
+const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion } = require('./controllers/userController'); // Импортируем новые функции
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, switchMode } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
@@ -44,7 +44,7 @@ bot.use(async (ctx, next) => {
       console.log(`[AdminMiddleware] Обработка ответа для пользователя ${ctx.session.awaitingAnswerFor}`);
       await handleAnswer(ctx, ctx.session.awaitingAnswerFor, ctx.message.text);
       ctx.session.awaitingAnswerFor = null; // Сбрасываем состояние
-      return; // Важно: завершаем обработку, чтобы сообщение не попало в handleQuestion
+      return; // Важно: завершаем обработку, чтобы сообщение не попало в другие обработчики
     }
   }
   return next(); // Передаем управление следующему обработчику
@@ -65,11 +65,15 @@ bot.command('switchmode', switchMode);
 // Обработка платежей
 bot.on('photo', handlePhoto);
 
-// ===== Кнопки =====
+// ===== Обработчики кнопок (callback_data) =====
+// Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('switch_mode', switchMode);
+bot.action('check_payments_admin', checkPayments); // Новая кнопка для админа
+bot.action('show_stats_admin', stats); // Новая кнопка для админа
+
 bot.action(/answer_(\d+)/, async (ctx) => {
   // Проверяем, что запрос на ответ пришел от админа
   if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
@@ -79,6 +83,12 @@ bot.action(/answer_(\d+)/, async (ctx) => {
   await ctx.reply('✍️ Введите ответ для пользователя:');
   await ctx.answerCbQuery(); // Закрываем всплывающее уведомление о нажатии кнопки
 });
+
+// Кнопки пользователя
+bot.action('check_subscription', checkSubscriptionStatus); // Обработчик для кнопки "Посмотреть срок действия"
+bot.action('ask_question', promptForQuestion); // Обработчик для кнопки "Задать вопрос"
+bot.action('extend_subscription', extendSubscription); // Обработчик для кнопки "Продлить подписку"
+
 
 // ===== Напоминания =====
 setupReminders(bot);
