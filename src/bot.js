@@ -1,5 +1,9 @@
 // bot.js
-require('dotenv').config({ path: __dirname + '/../primer.env' }); // <-- Убедитесь, что путь к .env верный, изменил на .env
+require('dotenv').config({ path: __dirname + '/../primer.env' }); // Ваш текущий путь
+
+console.log('DEBUG: BOT_TOKEN is:', process.env.BOT_TOKEN ? 'LOADED' : 'NOT LOADED'); // <-- Добавьте эту строку
+console.log('DEBUG: ADMIN_ID is:', process.env.ADMIN_ID ? 'LOADED' : 'NOT LOADED'); // <-- И эту тоже
+console.log('DEBUG: WG_EASY_BASE_URL is:', process.env.WG_EASY_BASE_URL ? 'LOADED' : 'NOT LOADED'); // <-- И эту тоже
 const { Telegraf, session, Markup } = require('telegraf'); // Добавил Markup
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
