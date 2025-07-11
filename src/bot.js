@@ -1,14 +1,20 @@
 // bot.js
-require('dotenv').config({ path: __dirname + '/../primer.env' }); // Ваш текущий путь
 
-console.log('DEBUG: BOT_TOKEN is:', process.env.BOT_TOKEN ? 'LOADED' : 'NOT LOADED'); // <-- Добавьте эту строку
-console.log('DEBUG: ADMIN_ID is:', process.env.ADMIN_ID ? 'LOADED' : 'NOT LOADED'); // <-- И эту тоже
-console.log('DEBUG: WG_EASY_BASE_URL is:', process.env.WG_EASY_BASE_URL ? 'LOADED' : 'NOT LOADED'); // <-- И эту тоже
-const { Telegraf, session, Markup } = require('telegraf'); // Добавил Markup
+// ОЧЕНЬ ВАЖНО: dotenv должен быть загружен только один раз, в самом начале корневого файла приложения.
+// Убедитесь, что путь к вашему primer.env файлу верен относительно этого bot.js файла.
+// Например, если primer.env находится в корне проекта, а bot.js в папке src/, то __dirname + '/../primer.env' - правильный путь.
+require('dotenv').config({ path: __dirname + '/../primer.env' });
+
+// Отладочные логи для проверки загрузки переменных окружения
+console.log('DEBUG: BOT_TOKEN is:', process.env.BOT_TOKEN ? 'LOADED' : 'NOT LOADED');
+console.log('DEBUG: ADMIN_ID is:', process.env.ADMIN_ID ? 'LOADED' : 'NOT LOADED');
+console.log('DEBUG: WG_EASY_BASE_URL is:', process.env.WG_EASY_BASE_URL ? 'LOADED' : 'NOT LOADED');
+
+const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const connectDB = require('./config/db');
+const connectDB = require('./config/db'); // Импортируем функцию подключения к БД
 
-// Контроллеры пользователя
+// === Контроллеры пользователя ===
 const {
   handleStart,
   checkSubscriptionStatus,
@@ -16,64 +22,98 @@ const {
   promptForQuestion,
   requestVpnInfo,
   handleVpnConfigured,
-  handleUserReplyKeyboard, // <-- Новый импорт для обработки Reply Keyboard
-  showUserQuestions // <-- Новый импорт для команды /myquestions
+  handleUserReplyKeyboard, // Для обработки кнопок Reply Keyboard
+  showUserQuestions       // Для команды /myquestions и кнопки "Мои вопросы"
 } = require('./controllers/userController');
 
-// Контроллеры оплаты
+// === Контроллеры оплаты ===
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 
-// Контроллеры администратора
+// === Контроллеры администратора ===
 const { checkPayments, stats, checkAdmin } = require('./controllers/adminController');
 
-// Контроллеры вопросов
+// === Контроллеры вопросов ===
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 
-// Сервисы
+// === Сервисы ===
 const { setupReminders } = require('./services/reminderService');
-// const { createWgClient, deleteWgClient } = require('./services/wireguardService'); // Эти импорты здесь не нужны, если используются только в других контроллерах/сервисах.
 
+
+// Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
-    agent: null,
-    handshakeTimeout: 30000
+    agent: null, // Используйте прокси, если требуется: new HttpsProxyAgent(process.env.PROXY_SOCKS5)
+    handshakeTimeout: 30000 // Увеличьте, если наблюдаются частые таймауты
   }
 });
 
+// Использование LocalSession для хранения сессий пользователей
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
-connectDB().catch(err => {
-  console.error('❌ MongoDB connection failed:', err);
-  process.exit(1);
+// ===== ГЛАВНАЯ ФУНКЦИЯ ЗАПУСКА БОТА =====
+const startBot = async () => {
+  try {
+    // 1. Подключение к базе данных
+    await connectDB();
+
+    // 2. Запуск бота Telegram
+    console.log('DEBUG: Attempting to launch bot...');
+    await bot.launch();
+    console.log('🤖 Бот запущен (Q&A + Payments)');
+
+    // 3. Планирование задач CRON (напоминаний)
+    setupReminders(bot);
+    console.log('✅ Напоминания cron запланированы.');
+
+  } catch (err) {
+    // Если произошла ошибка на любом из этапов запуска, логируем ее и выходим
+    console.error('🚨 Критическая ошибка при запуске бота или подключении к БД:', err);
+    process.exit(1); // Выходим с кодом ошибки
+  }
+};
+
+// Вызываем функцию запуска бота
+startBot();
+
+// ===== Обработка необработанных ошибок для стабильности =====
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Можно также отправить уведомление администратору
 });
 
-process.on('unhandledRejection', (err) => {
-  console.error('⚠️ Unhandled Rejection:', err);
-});
 process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
   // В случае критической ошибки, пытаемся остановить бота перед выходом
-  await bot.stop();
-  process.exit(1);
+  try {
+    await bot.stop();
+    console.log('✅ Бот остановлен после Uncaught Exception');
+  } catch (stopErr) {
+    console.error('Ошибка при остановке бота после Uncaught Exception:', stopErr);
+  }
+  process.exit(1); // Завершаем процесс
 });
 
-// ===== Middleware для ответов АДМИНА и отправки инструкций =====
+
+// ===== Middleware для обработки сообщений администратора =====
 bot.use(async (ctx, next) => {
+  // Отладочные логи для Middleware
   console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
   console.log(`[Middleware Debug] awaitingAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
   console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
   console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`);
 
+  // Проверяем, является ли отправитель администратором
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // 1. Обработка ответа на вопрос
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
       await handleAnswer(ctx, ctx.session.awaitingAnswerFor, ctx.message.text);
-      ctx.session.awaitingAnswerFor = null;
-      return;
+      ctx.session.awaitingAnswerFor = null; // Сбрасываем ожидание
+      return; // Завершаем обработку
     }
 
-    // 2. Обработка отправки ВИДЕО инструкции от админа (ФАЙЛ теперь отправляется автоматически)
+    // 2. Обработка отправки ВИДЕО инструкции от админа (файл теперь отправляется автоматически)
+    // Эта ветка срабатывает, когда админ отправляет видео после создания клиента
     if (ctx.session?.awaitingVpnVideoFor && ctx.message?.video) {
       const targetUserId = ctx.session.awaitingVpnVideoFor;
       try {
@@ -83,6 +123,7 @@ bot.use(async (ctx, next) => {
         });
         await ctx.reply(`✅ Видеоинструкция успешно отправлена пользователю ${targetUserId}.`);
 
+        // Предлагаем пользователю подтвердить настройку VPN
         await ctx.telegram.sendMessage(
           targetUserId,
           'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже:',
@@ -95,98 +136,94 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
       } finally {
-        ctx.session.awaitingVpnVideoFor = null;
+        ctx.session.awaitingVpnVideoFor = null; // Сбрасываем ожидание в любом случае
       }
-      return;
+      return; // Завершаем обработку
     }
 
+    // Если админ отправил сообщение, которое не соответствует ни одному ожидающему состоянию
     if (ctx.message) {
       console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
+      // Можно добавить тут какое-то дефолтное поведение или игнорирование
     }
   }
-  return next();
+  return next(); // Передаем управление следующему middleware или обработчику
 });
 
 // ===== Обработчики команд =====
 bot.start(handleStart);
-bot.command('myquestions', showUserQuestions); // <-- Новая команда для просмотра вопросов пользователя
+bot.command('myquestions', showUserQuestions); // Команда для просмотра вопросов пользователя
 
-// !!! ВАЖНО: Эти обработчики для Reply Keyboard ДОЛЖНЫ быть ПЕРЕД общим bot.hears(/^[^\/].*/, handleQuestion);
+// !!! ВАЖНО: Обработчики для Reply Keyboard ДОЛЖНЫ быть ПЕРЕД общим bot.hears(/^[^\/].*/, handleQuestion);
+// Это позволяет обработать нажатия кнопок до того, как они будут интерпретированы как вопрос.
 bot.hears('🗓 Моя подписка', handleUserReplyKeyboard);
 bot.hears('❓ Задать вопрос', handleUserReplyKeyboard);
 bot.hears('💰 Продлить VPN', handleUserReplyKeyboard);
-bot.hears('📚 Мои вопросы', handleUserReplyKeyboard); // <-- Новая кнопка Reply Keyboard
+bot.hears('📚 Мои вопросы', handleUserReplyKeyboard);
 
-// Общий обработчик текстовых сообщений, если не сработали другие bot.hears
+// Общий обработчик текстовых сообщений, если ни одна из предыдущих команд/hears не сработала
 bot.hears(/^[^\/].*/, handleQuestion);
 
-// Админские команды
+// === Админские команды ===
 bot.command('check', checkPayments);
 bot.command('stats', stats);
-bot.command('questions', listQuestions);
+bot.command('questions', listQuestions); // Показать список вопросов
 
-// Обработка платежей
+// Обработка фотографий (для отправки чеков оплаты)
 bot.on('photo', handlePhoto);
 
 // ===== Обработчики кнопок (callback_data) =====
-// Кнопки админа
+// === Кнопки админа (Inline Keyboard) ===
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 
+// Кнопка для ответа на вопрос (устанавливает ожидание ответа)
 bot.action(/answer_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
-  ctx.session.awaitingAnswerFor = ctx.match[1];
+  ctx.session.awaitingAnswerFor = ctx.match[1]; // Сохраняем ID пользователя, которому отвечаем
   await ctx.reply('✍️ Введите ответ для пользователя:');
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery(); // Закрываем всплывающее уведомление от кнопки
 });
 
-// Кнопка 'send_instruction_to_(\d+)' теперь только для видео, файл отправляется автоматически
+// Кнопка для отправки видеоинструкции (файл конфига отправляется автоматически при одобрении)
 bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
   const targetUserId = ctx.match[1];
-  // Мы предполагаем, что конфиг файл уже отправлен автоматически
-  ctx.session.awaitingVpnVideoFor = targetUserId; // Сразу ожидаем видео
+  // Мы предполагаем, что конфиг файл уже отправлен автоматически в handleApprove
+  ctx.session.awaitingVpnVideoFor = targetUserId; // Устанавливаем ожидание видео
   await ctx.reply(`Загрузите *видеоинструкцию* для пользователя ${targetUserId}:`);
   await ctx.answerCbQuery();
 });
 
+// === Кнопки пользователя (Inline Keyboard) ===
+// Эти кнопки могут быть вызваны из сообщений бота (например, после `/start` или `/check_subscription`)
+// Некоторые из них могут быть продублированы Reply Keyboard для удобства
+bot.action('check_subscription', checkSubscriptionStatus);
+bot.action('ask_question', promptForQuestion);
+bot.action('extend_subscription', extendSubscription);
+bot.action(/send_vpn_info_(\d+)/, requestVpnInfo); // Кнопка для запроса VPN информации/инструкций
+bot.action(/vpn_configured_(\d+)/, handleVpnConfigured); // Кнопка подтверждения настройки VPN
 
-// Кнопки пользователя (Inline Keyboard)
-bot.action('check_subscription', checkSubscriptionStatus); // Эта кнопка больше не нужна, если есть Reply Keyboard
-bot.action('ask_question', promptForQuestion); // Эта кнопка больше не нужна, если есть Reply Keyboard
-bot.action('extend_subscription', extendSubscription); // Эта кнопка больше не нужна, если есть Reply Keyboard
-bot.action(/send_vpn_info_(\d+)/, requestVpnInfo); // Эта кнопка теперь только для запроса видео
-bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 
-// ===== Напоминания =====
-setupReminders(bot);
-
-// ===== Запуск =====
-bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
-  .catch(err => {
-    console.error('🚨 Ошибка запуска:', err);
-    process.exit(1);
-  });
-
-// Graceful shutdown
+// ===== Graceful shutdown (аккуратное завершение работы) =====
+// Обработка сигналов завершения процесса для корректной остановки бота
 ['SIGINT', 'SIGTERM'].forEach(signal => {
   process.once(signal, async () => {
     console.log(`🛑 Получен ${signal}, останавливаю бота...`);
     try {
-      await bot.stop();
+      await bot.stop(); // Остановка бота Telegraf
       console.log('✅ Бот остановлен');
-      process.exit(0);
+      process.exit(0); // Корректный выход из процесса
     } catch (err) {
       console.error('Ошибка завершения:', err);
-      process.exit(1);
+      process.exit(1); // Выход с ошибкой
     }
   });
 });
