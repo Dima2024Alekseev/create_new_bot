@@ -1,5 +1,4 @@
 const User = require('../models/User');
-const { Markup } = require('telegraf');
 const { paymentDetails } = require('../utils/helpers');
 const { checkAdmin } = require('./adminController');
 
@@ -8,17 +7,16 @@ exports.handleStart = async (ctx) => {
   
   // Проверяем режим админа
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
-    await ctx.replyWithMarkdown(
+    return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
-      'Используйте команду /admin для доступа к панели управления',
-      Markup.keyboard([
-        ['📊 Статистика', '📝 Вопросы'],
-        ['💳 Платежи', '🔄 Режим']
-      ]).resize()
+      'Команды:\n' +
+      '/check - Проверить заявки\n' +
+      '/stats - Статистика\n' +
+      '/switchmode - Переключиться в режим пользователя'
     );
-    return;
   }
 
+  // Остальной код остается без изменений
   const user = await User.findOne({ userId: id });
   
   if (user?.status === 'active') {
