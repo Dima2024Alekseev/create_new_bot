@@ -54,6 +54,8 @@ bot.on('photo', handlePhoto);
 // ===== Кнопки =====
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
+bot.action(/confirm_extend_(\d+)/, handleConfirmExtend);
+bot.action(/cancel_extend_(\d+)/, handleCancelExtend);
 bot.action('list_questions', listQuestions);
 bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {

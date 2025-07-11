@@ -10,7 +10,23 @@ exports.handlePhoto = async (ctx) => {
   }
 
   const photo = ctx.message.photo.pop();
-  
+  const existingUser = await User.findOne({ userId: id });
+
+  // Если у пользователя есть активная подписка
+  if (existingUser?.status === 'active' && existingUser.expireDate > new Date()) {
+    const confirmKeyboard = Markup.inlineKeyboard([
+      Markup.button.callback('✅ Да, продлить', `confirm_extend_${id}`),
+      Markup.button.callback('❌ Отмена', `cancel_extend_${id}`)
+    ]);
+    
+    return ctx.reply(
+      `У вас уже есть активная подписка до ${existingUser.expireDate.toLocaleDateString('ru-RU')}\n` +
+      'Вы действительно хотите продлить подписку?',
+      confirmKeyboard
+    );
+  }
+
+  // Обработка нового платежа или продления
   await User.findOneAndUpdate(
     { userId: id },
     {
@@ -32,12 +48,52 @@ exports.handlePhoto = async (ctx) => {
     process.env.ADMIN_ID,
     photo.file_id,
     {
-      caption: `📸 Новый платёж от ${first_name} (@${username || 'нет'})\nID: ${id}`,
+      caption: `📸 ${existingUser?.status === 'active' ? 'Продление подписки' : 'Новый платёж'} от ${first_name} (@${username || 'нет'})\nID: ${id}`,
       ...keyboard
     }
   );
 
   await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+};
+
+exports.handleConfirmExtend = async (ctx) => {
+  const userId = parseInt(ctx.match[1]);
+  
+  // Проверяем, что пользователь отправил фото
+  if (!ctx.message?.photo) {
+    return ctx.reply('Пожалуйста, отправьте скриншот оплаты для продления');
+  }
+
+  const photo = ctx.message.photo.pop();
+  await User.findOneAndUpdate(
+    { userId },
+    {
+      paymentPhotoId: photo.file_id,
+      status: 'pending'
+    }
+  );
+
+  const keyboard = Markup.inlineKeyboard([
+    Markup.button.callback('✅ Принять', `approve_${userId}`),
+    Markup.button.callback('❌ Отклонить', `reject_${userId}`)
+  ]);
+
+  await ctx.telegram.sendPhoto(
+    process.env.ADMIN_ID,
+    photo.file_id,
+    {
+      caption: `🔄 Запрос на продление подписки от ID: ${userId}`,
+      ...keyboard
+    }
+  );
+
+  await ctx.reply('✅ Запрос на продление подписки отправлен администратору');
+  await ctx.deleteMessage();
+};
+
+exports.handleCancelExtend = async (ctx) => {
+  await ctx.answerCbQuery('❌ Продление отменено');
+  await ctx.deleteMessage();
 };
 
 exports.handleApprove = async (ctx) => {
@@ -46,9 +102,15 @@ exports.handleApprove = async (ctx) => {
   }
 
   const userId = parseInt(ctx.match[1]);
-  const expireDate = new Date();
+  const user = await User.findOne({ userId });
+  let expireDate = new Date();
+
+  // Если уже есть активная подписка, продлеваем от текущей даты окончания
+  if (user.status === 'active' && user.expireDate > new Date()) {
+    expireDate = new Date(user.expireDate);
+  }
   expireDate.setMonth(expireDate.getMonth() + 1);
-  expireDate.setHours(23, 59, 59, 999); // Устанавливаем на конец дня
+  expireDate.setHours(23, 59, 59, 999);
 
   await User.findOneAndUpdate(
     { userId },
@@ -59,27 +121,27 @@ exports.handleApprove = async (ctx) => {
   );
 
   const formatDate = (date) => {
-    const options = {
+    return date.toLocaleDateString('ru-RU', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
-    };
-    return date.toLocaleDateString('ru-RU', options);
+    });
   };
 
   await ctx.telegram.sendMessage(
     userId,
-    `🎉 Платёж подтверждён!\n\n` +
+    `🎉 ${user.status === 'active' ? 'Подписка продлена' : 'Платёж подтверждён'}!\n\n` +
     `Доступ к VPN активен до ${formatDate(expireDate)}\n\n` +
-    `Данные для подключения:\n` +
-    `Сервер: vpn.example.com\n` +
-    `Логин: ваш_логин\n` +
-    `Пароль: ${Math.random().toString(36).slice(-8)}`
+    `Данные для подключения ${user.status === 'active' ? 'остаются прежними' : 'указаны ниже'}:\n` +
+    (user.status !== 'active' ? 
+      `Сервер: vpn.example.com\n` +
+      `Логин: ваш_логин\n` +
+      `Пароль: ${Math.random().toString(36).slice(-8)}` : '')
   );
 
-  await ctx.answerCbQuery('✅ Платёж принят');
+  await ctx.answerCbQuery(`✅ ${user.status === 'active' ? 'Продлено' : 'Принято'}`);
   await ctx.deleteMessage();
 };
 
