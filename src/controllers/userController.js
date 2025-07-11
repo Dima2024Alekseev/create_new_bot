@@ -1,6 +1,5 @@
 const User = require('../models/User');
-// Импортируем все функции из helpers
-const { paymentDetails, formatDate, formatDuration } = require('../utils/helpers'); 
+const { paymentDetails, formatDate, formatDuration } = require('../utils/helpers');
 const { checkAdmin } = require('./adminController');
 const { Markup } = require('telegraf');
 
@@ -35,13 +34,15 @@ exports.handleStart = async (ctx) => {
   let message = '';
   let keyboardButtons = [];
 
-  if (user?.status === 'active' && user.expireDate) { // Добавлено user.expireDate для надежности
+  // Флаг, указывающий, есть ли у пользователя активная или ожидающая подписка
+  const hasActiveOrPendingSubscription = user?.status === 'active' || user?.status === 'pending';
+
+  if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
-    const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24)); // Округление вверх до дней
     
-    message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`; // Используем formatDate с временем
+    message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
-        message += `\nОсталось: ${formatDuration(timeLeft)}.`; // Используем formatDuration
+        message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
         message += `\nСрок действия истёк.`;
     }
@@ -49,14 +50,20 @@ exports.handleStart = async (ctx) => {
     keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
   } else {
     // Если подписки нет, просрочена или в другом статусе
-    message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` + // Используем price из .env или дефолтное
-              `${paymentDetails(id, first_name)}\n\n` + // Передаем name для комментария, если нужно
+    message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
+              `${paymentDetails(id, first_name)}\n\n` +
               '_После оплаты отправьте скриншот чека_';
   }
   
-  // Добавляем общие кнопки для всех пользователей
+  // Добавляем кнопку "Посмотреть срок действия подписки" только если есть активная/ожидающая подписка
+  if (hasActiveOrPendingSubscription) {
+    keyboardButtons.push(
+      [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
+    );
+  }
+
+  // Кнопка "Задать вопрос" всегда доступна
   keyboardButtons.push(
-    [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
     [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
   );
 
@@ -73,15 +80,26 @@ exports.handleStart = async (ctx) => {
 
 // Новая функция для обработки запроса на проверку срока действия
 exports.checkSubscriptionStatus = async (ctx) => {
-  const { id, first_name } = ctx.from; // Получаем first_name для paymentDetails, если потребуется
+  const { id, first_name } = ctx.from;
   const user = await User.findOne({ userId: id });
+
+  // Дополнительная проверка на всякий случай, если пользователь вызвал callback без кнопки
+  if (!user || (user.status !== 'active' && user.status !== 'pending')) {
+    await ctx.replyWithMarkdown(
+      `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
+      `${paymentDetails(id, first_name)}\n\n` +
+      '_После оплаты отправьте скриншот чека_',
+      { disable_web_page_preview: true }
+    );
+    return ctx.answerCbQuery(); // Закрываем всплывающее уведомление и завершаем
+  }
 
   if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
     
-    let message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`; // Используем formatDate с временем
+    let message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
-      message += `\nОсталось: ${formatDuration(timeLeft)}.`; // Используем formatDuration
+      message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
       message += `\nСрок действия истёк.`;
     }
@@ -92,10 +110,11 @@ exports.checkSubscriptionStatus = async (ctx) => {
   } else if (user?.status === 'rejected') {
     await ctx.reply('❌ Ваша последняя заявка на оплату была отклонена. Пожалуйста, отправьте новый скриншот.');
   } else {
-    // Если пользователь не найден или неактивен, предлагаем оплату
+    // Этот блок по идее не должен быть достигнут, т.к. мы уже проверяем выше
+    // Но оставим его как запасной вариант для полной обработки всех статусов
     await ctx.replyWithMarkdown(
       `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-      `${paymentDetails(id, first_name)}\n\n` + // Передаем name
+      `${paymentDetails(id, first_name)}\n\n` +
       '_После оплаты отправьте скриншот чека_',
       { disable_web_page_preview: true }
     );
@@ -105,11 +124,11 @@ exports.checkSubscriptionStatus = async (ctx) => {
 
 // Функция для обработки нажатия кнопки "Продлить подписку" (можно направить на /start)
 exports.extendSubscription = async (ctx) => {
-  const { id, first_name } = ctx.from; // Получаем first_name для paymentDetails
+  const { id, first_name } = ctx.from;
   await ctx.replyWithMarkdown(
     `Для продления подписки отправьте новый скриншот оплаты.\n\n` +
     `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-    `${paymentDetails(id, first_name)}\n\n` + // Передаем name
+    `${paymentDetails(id, first_name)}\n\n` +
     '_После оплаты отправьте скриншот чека_',
     { disable_web_page_preview: true }
   );
@@ -119,5 +138,5 @@ exports.extendSubscription = async (ctx) => {
 // Функция для обработки нажатия кнопки "Задать вопрос"
 exports.promptForQuestion = async (ctx) => {
   await ctx.reply('✍️ Напишите ваш вопрос в следующем сообщении. Я передам его администратору.');
-  await ctx.answerCbQuery(); // Закрываем всплывающее уведомление
+  await ctx.answerCbQuery();
 };
