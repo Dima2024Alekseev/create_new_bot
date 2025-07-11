@@ -30,7 +30,7 @@ async function notifyAdminAboutQuestion(ctx) {
       `ID пользователя: ${ctx.from.id}`,
       Markup.inlineKeyboard([
         [Markup.button.callback('📝 Ответить', `answer_${ctx.from.id}`)],
-        [Markup.button.callback('👀 Все вопросы', 'list_questions')]
+        [Markup.button.callback('👀 Все вопросы', 'pending_questions')]
       ])
     );
   } catch (err) {
@@ -68,36 +68,5 @@ exports.handleAnswer = async (ctx, userId, answerText) => {
   } catch (err) {
     console.error('Ошибка при ответе на вопрос:', err);
     await ctx.reply('⚠️ Не удалось отправить ответ');
-  }
-};
-
-exports.listQuestions = async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.reply('🚫 Только для админа');
-  }
-
-  try {
-    const questions = await Question.find()
-      .sort({ createdAt: -1 })
-      .limit(10);
-    
-    if (!questions.length) {
-      return ctx.reply('ℹ️ Нет вопросов в базе');
-    }
-
-    let message = '📋 Последние вопросы:\n\n';
-    questions.forEach((q, i) => {
-      message += `${i+1}. ${q.firstName} (@${q.username || 'нет'}):\n` +
-                 `"${q.questionText}"\n` +
-                 `Статус: ${q.status === 'answered' ? '✅ Отвечено' : '⏳ Ожидает'}\n` +
-                 `Дата: ${q.createdAt.toLocaleString()}\n\n`;
-    });
-
-    await ctx.reply(message, Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Обновить', 'list_questions')]
-    ]));
-  } catch (err) {
-    console.error('Ошибка получения списка вопросов:', err);
-    await ctx.reply('⚠️ Не удалось загрузить вопросы');
   }
 };
