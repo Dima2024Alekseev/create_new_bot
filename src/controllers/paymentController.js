@@ -48,7 +48,6 @@ exports.handleApprove = async (ctx) => {
   const userId = parseInt(ctx.match[1]);
   const expireDate = new Date();
   expireDate.setMonth(expireDate.getMonth() + 1);
-  expireDate.setHours(23, 59, 59, 999); // Устанавливаем на конец дня
 
   await User.findOneAndUpdate(
     { userId },
@@ -72,11 +71,7 @@ exports.handleApprove = async (ctx) => {
   await ctx.telegram.sendMessage(
     userId,
     `🎉 Платёж подтверждён!\n\n` +
-    `Доступ к VPN активен до ${formatDate(expireDate)}\n\n` +
-    `Данные для подключения:\n` +
-    `Сервер: vpn.example.com\n` +
-    `Логин: ваш_логин\n` +
-    `Пароль: ${Math.random().toString(36).slice(-8)}`
+    `Доступ к VPN активен до ${formatDate(expireDate)}\n\n`
   );
 
   await ctx.answerCbQuery('✅ Платёж принят');
