@@ -10,13 +10,13 @@ const { setupReminders } = require('./services/reminderService');
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
-  telegram: {
+  telegram: { 
     agent: null,
     handshakeTimeout: 30000
   }
 });
 
-// Настройка сессий
+// Настройка сессий (должна быть одной из первых)
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
 // Подключение БД
@@ -35,10 +35,26 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
+// ===== Middleware для ответов АДМИНА (ПЕРЕМЕЩЕНО ВЫШЕ) =====
+// Этот middleware должен срабатывать ПЕРВЫМ для админа, чтобы перехватить его ответы
+bot.use(async (ctx, next) => {
+  // Проверяем, если это админ и он ожидает ответа
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
+      console.log(`[AdminMiddleware] Обработка ответа для пользователя ${ctx.session.awaitingAnswerFor}`);
+      await handleAnswer(ctx, ctx.session.awaitingAnswerFor, ctx.message.text);
+      ctx.session.awaitingAnswerFor = null; // Сбрасываем состояние
+      return; // Важно: завершаем обработку, чтобы сообщение не попало в handleQuestion
+    }
+  }
+  return next(); // Передаем управление следующему обработчику
+});
+
 // ===== Обработчики команд =====
 // Пользовательские
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion); // Вопросы вне команд
+// Этот обработчик должен быть ПОСЛЕ middleware для ответов админа
+bot.hears(/^[^\/].*/, handleQuestion);
 
 // Админские
 bot.command('check', checkPayments);
@@ -55,19 +71,13 @@ bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {
-  ctx.session.awaitingAnswerFor = ctx.match[1];
-  await ctx.reply('✍️ Введите ваш ответ:');
-});
-
-// ===== Middleware для ответов =====
-bot.use(async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
-    if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
-      await handleAnswer(ctx);
-      return;
-    }
+  // Проверяем, что запрос на ответ пришел от админа
+  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
+    return ctx.answerCbQuery('🚫 Доступ только для админа');
   }
-  return next();
+  ctx.session.awaitingAnswerFor = ctx.match[1];
+  await ctx.reply('✍️ Введите ответ для пользователя:');
+  await ctx.answerCbQuery(); // Закрываем всплывающее уведомление о нажатии кнопки
 });
 
 // ===== Напоминания =====
@@ -84,7 +94,7 @@ bot.launch()
 // Graceful shutdown
 ['SIGINT', 'SIGTERM'].forEach(signal => {
   process.once(signal, async () => {
-    console.log(`🛑 Получен сигнал ${signal}, останавливаю бота...`);
+    console.log(`🛑 Получен ${signal}, останавливаю бота...`);
     try {
       await bot.stop();
       console.log('✅ Бот остановлен');
