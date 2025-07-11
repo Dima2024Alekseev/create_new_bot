@@ -1,15 +1,42 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 
-exports.checkPayments = async (ctx) => {
+// Хранилище режимов админа
+const adminModes = {};
+
+// Проверка прав администратора с учетом режима
+function checkAdmin(ctx) {
+  return ctx.from.id === parseInt(process.env.ADMIN_ID) && 
+         (!adminModes[ctx.from.id] || adminModes[ctx.from.id] === 'admin');
+}
+
+// Переключение режима
+exports.switchMode = async (ctx) => {
   if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
+    return ctx.reply('🚫 Доступ только для админа');
+  }
+
+  const currentMode = adminModes[ctx.from.id] || 'admin';
+  const newMode = currentMode === 'admin' ? 'user' : 'admin';
+
+  adminModes[ctx.from.id] = newMode;
+
+  await ctx.reply(
+    `🔄 Режим изменен: ${newMode === 'admin' ? '👑 Администратор' : '👤 Обычный пользователь'}\n\n` +
+    `Теперь бот будет реагировать на вас как на ${newMode === 'admin' ? 'администратора' : 'обычного пользователя'}.\n\n` +
+    `Используйте /switchmode для обратного переключения.`
+  );
+};
+
+exports.checkPayments = async (ctx) => {
+  if (!checkAdmin(ctx)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
 
   try {
     const pendingUsers = await User.find({ status: 'pending' })
-      .sort({ createdAt: 1 }) // Сначала старые заявки
-      .limit(50); // Лимит чтобы не перегружать чат
+      .sort({ createdAt: 1 })
+      .limit(50);
     
     if (!pendingUsers.length) {
       return ctx.reply('ℹ️ Нет заявок на проверку');
@@ -23,7 +50,6 @@ exports.checkPayments = async (ctx) => {
       message += `Дата: ${new Date(user.createdAt).toLocaleString('ru-RU')}\n\n`;
     });
 
-    // Добавляем кнопки если много заявок
     const buttons = [];
     if (pendingUsers.length > 10) {
       buttons.push([{ text: '🗑 Очистить все', callback_data: 'clear_payments' }]);
@@ -40,9 +66,11 @@ exports.checkPayments = async (ctx) => {
 };
 
 exports.stats = async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
+  if (!checkAdmin(ctx)) {
     return ctx.reply('🚫 Доступ только для админа');
   }
+
+  const currentMode = adminModes[ctx.from.id] || 'admin';
 
   try {
     const [usersStats, questionsStats, expiringSoon] = await Promise.all([
@@ -80,10 +108,13 @@ exports.stats = async (ctx) => {
       statsText += 'Нет подписок, истекающих в ближайшую неделю\n';
     }
 
+    statsText += `\nТекущий режим: ${currentMode === 'admin' ? '👑 Админ' : '👤 Пользователь'}`;
+
     await ctx.replyWithMarkdown(statsText, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }],
+          [{ text: '🔀 Сменить режим', callback_data: 'switch_mode' }]
         ]
       }
     });

@@ -1,11 +1,12 @@
 const User = require('../models/User');
 const { Markup } = require('telegraf');
+const { checkAdmin } = require('./adminController');
 
 exports.handlePhoto = async (ctx) => {
   const { id, first_name, username } = ctx.from;
   
-  if (id === parseInt(process.env.ADMIN_ID)) {
-    return ctx.reply('Вы админ, скриншоты не требуются');
+  if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
+    return ctx.reply('Вы в режиме админа, скриншоты не требуются');
   }
 
   const photo = ctx.message.photo.pop();
@@ -22,7 +23,6 @@ exports.handlePhoto = async (ctx) => {
     { upsert: true, new: true }
   );
 
-  // Кнопки для админа
   const keyboard = Markup.inlineKeyboard([
     Markup.button.callback('✅ Принять', `approve_${id}`),
     Markup.button.callback('❌ Отклонить', `reject_${id}`)
@@ -40,8 +40,11 @@ exports.handlePhoto = async (ctx) => {
   await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
 };
 
-// Обработка кнопок
 exports.handleApprove = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
   const userId = parseInt(ctx.match[1]);
   const expireDate = new Date();
   expireDate.setMonth(expireDate.getMonth() + 1);
@@ -69,6 +72,10 @@ exports.handleApprove = async (ctx) => {
 };
 
 exports.handleReject = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
   const userId = parseInt(ctx.match[1]);
 
   await User.findOneAndUpdate(

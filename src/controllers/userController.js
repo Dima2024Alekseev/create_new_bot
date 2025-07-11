@@ -1,18 +1,22 @@
 const User = require('../models/User');
 const { paymentDetails } = require('../utils/helpers');
+const { checkAdmin } = require('./adminController');
 
 exports.handleStart = async (ctx) => {
-  const { id, first_name, last_name, username } = ctx.from;
+  const { id, first_name } = ctx.from;
   
-  if (id === parseInt(process.env.ADMIN_ID)) {
+  // Проверяем режим админа
+  if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
       'Команды:\n' +
       '/check - Проверить заявки\n' +
-      '/stats - Статистика'
+      '/stats - Статистика\n' +
+      '/switchmode - Переключиться в режим пользователя'
     );
   }
 
+  // Остальной код остается без изменений
   const user = await User.findOne({ userId: id });
   
   if (user?.status === 'active') {

@@ -1,9 +1,8 @@
 const { Markup } = require('telegraf');
 const Question = require('../models/Question');
+const { checkAdmin } = require('./adminController');
 
-// Обработчик вопросов от пользователей
 exports.handleQuestion = async (ctx) => {
-  // Пропускаем команды и служебные сообщения
   if (ctx.message.text.startsWith('/') || !ctx.message.text) return;
 
   try {
@@ -22,7 +21,6 @@ exports.handleQuestion = async (ctx) => {
   }
 };
 
-// Уведомление админа о новом вопросе
 async function notifyAdminAboutQuestion(ctx) {
   try {
     await ctx.telegram.sendMessage(
@@ -40,8 +38,11 @@ async function notifyAdminAboutQuestion(ctx) {
   }
 }
 
-// Обработчик ответа админа
 exports.handleAnswer = async (ctx, userId, answerText) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.reply('🚫 Только для админа');
+  }
+
   try {
     const question = await Question.findOneAndUpdate(
       { userId, status: 'pending' },
@@ -70,8 +71,11 @@ exports.handleAnswer = async (ctx, userId, answerText) => {
   }
 };
 
-// Список вопросов для админа
 exports.listQuestions = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.reply('🚫 Только для админа');
+  }
+
   try {
     const questions = await Question.find()
       .sort({ createdAt: -1 })

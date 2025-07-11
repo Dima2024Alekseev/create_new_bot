@@ -4,7 +4,7 @@ const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const { handleStart } = require('./controllers/userController');
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats } = require('./controllers/adminController');
+const { checkPayments, stats, switchMode } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 
@@ -40,12 +40,13 @@ process.on('uncaughtException', async (err) => {
 
 // Пользовательские
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion); // Все текстовые сообщения -> вопросы
+bot.hears(/^[^\/].*/, handleQuestion);
 
 // Админские
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
+bot.command('switchmode', switchMode);
 
 // Обработка платежей
 bot.on('photo', handlePhoto);
@@ -54,6 +55,7 @@ bot.on('photo', handlePhoto);
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
+bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
