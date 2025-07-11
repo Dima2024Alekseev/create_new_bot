@@ -10,7 +10,7 @@ const { setupReminders } = require('./services/reminderService');
 
 // Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN, {
-  telegram: { 
+  telegram: {
     agent: null,
     handshakeTimeout: 30000
   }
@@ -29,7 +29,6 @@ connectDB().catch(err => {
 process.on('unhandledRejection', (err) => {
   console.error('⚠️ Unhandled Rejection:', err);
 });
-
 process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
   await bot.stop();
@@ -37,10 +36,9 @@ process.on('uncaughtException', async (err) => {
 });
 
 // ===== Обработчики команд =====
-
 // Пользовательские
 bot.start(handleStart);
-bot.hears(/^[^\/].*/, handleQuestion);
+bot.hears(/^[^\/].*/, handleQuestion); // Вопросы вне команд
 
 // Админские
 bot.command('check', checkPayments);
@@ -58,15 +56,14 @@ bot.action('list_questions', listQuestions);
 bot.action('switch_mode', switchMode);
 bot.action(/answer_(\d+)/, async (ctx) => {
   ctx.session.awaitingAnswerFor = ctx.match[1];
-  await ctx.reply('✍️ Введите ответ для пользователя:');
+  await ctx.reply('✍️ Введите ваш ответ:');
 });
 
 // ===== Middleware для ответов =====
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
-      await handleAnswer(ctx, ctx.session.awaitingAnswerFor, ctx.message.text);
-      ctx.session.awaitingAnswerFor = null;
+      await handleAnswer(ctx);
       return;
     }
   }
@@ -87,7 +84,7 @@ bot.launch()
 // Graceful shutdown
 ['SIGINT', 'SIGTERM'].forEach(signal => {
   process.once(signal, async () => {
-    console.log(`🛑 Получен ${signal}, останавливаю бота...`);
+    console.log(`🛑 Получен сигнал ${signal}, останавливаю бота...`);
     try {
       await bot.stop();
       console.log('✅ Бот остановлен');

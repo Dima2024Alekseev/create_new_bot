@@ -6,10 +6,10 @@ const questionSchema = new Schema({
   firstName: String,
   questionText: { type: String, required: true },
   answerText: String,
-  status: { 
-    type: String, 
-    enum: ['pending', 'answered'], 
-    default: 'pending' 
+  status: {
+    type: String,
+    enum: ['pending', 'answered'],
+    default: 'pending'
   },
   createdAt: { type: Date, default: Date.now },
   answeredAt: Date
