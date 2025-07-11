@@ -1,26 +1,29 @@
-// services/reminderService.js
 const cron = require('node-cron');
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { paymentDetails, formatDate } = require('../utils/helpers');
-const { deleteWgClient } = require('./wireguardService'); // <-- Импортируем функцию удаления WG клиента
 
 exports.setupReminders = (bot) => {
   // Ежедневные напоминания о скором истечении подписки в 10:00 по Москве
+  // (Предполагая, что ваше системное время соответствует времени сервера,
+  // где развернут бот, и вы хотите, чтобы это было 10:00 утра по времени сервера)
   cron.schedule('0 10 * * *', async () => {
     console.log('[Cron] Запуск задачи напоминаний о подписках и вопросах...');
     try {
-      const now = new Date();
+      const now = new Date(); // Единая точка отсчета времени для этой задачи
 
+      // 1. Напоминания о скором истечении подписки
+      // Ищем активных пользователей, у которых подписка истекает в течение REMIND_DAYS
+      // и которым напоминание не отправлялось сегодня (или вообще)
       const expiringUsers = await User.find({
         status: 'active',
-        expireDate: {
+        expireDate: { 
           $lte: new Date(now.getTime() + process.env.REMIND_DAYS * 86400000), // Дата истечения <= (сейчас + REMIND_DAYS дней)
           $gt: now                                                        // Дата истечения > (сейчас)
         },
         $or: [
-          { lastReminder: { $exists: false } },
-          { lastReminder: { $lt: new Date(now.getTime() - 86400000) } }
+          { lastReminder: { $exists: false } },                           // Напоминание еще не отправлялось
+          { lastReminder: { $lt: new Date(now.getTime() - 86400000) } }    // Или напоминание отправлялось более 24 часов назад
         ]
       });
 
@@ -29,18 +32,18 @@ exports.setupReminders = (bot) => {
       for (const user of expiringUsers) {
         try {
           const daysLeft = Math.ceil((user.expireDate - now) / 86400000);
-
+          
           await bot.telegram.sendMessage(
             user.userId,
             `⚠️ *Ваша подписка истекает через ${daysLeft} дней!*\n\n` +
             `Продлите VPN за ${process.env.VPN_PRICE} руб.\n\n` +
-            paymentDetails(user.userId, user.firstName || user.username),
-            { parse_mode: 'Markdown', disable_web_page_preview: true }
+            paymentDetails(user.userId, user.firstName || user.username), // Передаем данные пользователя
+            { parse_mode: 'Markdown', disable_web_page_preview: true } // Добавил disable_web_page_preview
           );
-
+          
           await User.updateOne(
             { userId: user.userId },
-            { lastReminder: now }
+            { lastReminder: now } // Обновляем время последнего напоминания
           );
           console.log(`[Cron] Отправлено напоминание пользователю ${user.userId}.`);
         } catch (e) {
@@ -48,8 +51,8 @@ exports.setupReminders = (bot) => {
         }
       }
 
-      // Напоминания о неотвеченных вопросах (для админа)
-      const pendingQuestions = await Question.countDocuments({
+      // 2. Напоминания о неотвеченных вопросах (для админа)
+      const pendingQuestions = await Question.countDocuments({ 
         status: 'pending',
         createdAt: { $gt: new Date(now.getTime() - 7 * 86400000) } // Только за последние 7 дней
       });
@@ -74,11 +77,11 @@ exports.setupReminders = (bot) => {
   cron.schedule('0 11 * * *', async () => {
     console.log('[Cron] Запуск задачи обработки истекших подписок...');
     try {
-      const now = new Date();
+      const now = new Date(); // Единая точка отсчета времени для этой задачи
 
       const expiredUsers = await User.find({
-        status: 'active',
-        expireDate: { $lte: now }
+        status: 'active', // Ищем тех, кто все еще 'active'
+        expireDate: { $lte: now } // Но их подписка истекла или истекает прямо сейчас
       });
 
       console.log(`[Cron] Найдено ${expiredUsers.length} пользователей с истекшей подпиской.`);
@@ -90,39 +93,19 @@ exports.setupReminders = (bot) => {
             `🚫 *Ваша подписка на VPN истекла!*` +
             `\n\nЧтобы продолжить пользоваться VPN, пожалуйста, продлите подписку.` +
             `\n\nПродлите VPN за ${process.env.VPN_PRICE} руб.\n\n` +
-            paymentDetails(user.userId, user.firstName || user.username),
+            paymentDetails(user.userId, user.firstName || user.username), // Передаем данные пользователя
             { parse_mode: 'Markdown', disable_web_page_preview: true }
           );
-
-          // !!! АВТОМАТИЧЕСКОЕ УДАЛЕНИЕ КЛИЕНТА WIREGUARD !!!
-          if (user.wireguardPeerId) {
-            try {
-              await deleteWgClient(user.wireguardPeerId); // <-- Вызов функции удаления WireGuard клиента
-              console.log(`[Cron] Клиент WireGuard ${user.wireguardPeerId} для пользователя ${user.userId} удален.`);
-              await bot.telegram.sendMessage(
-                process.env.ADMIN_ID,
-                `✅ Клиент WireGuard ${user.wireguardClientName} (ID: ${user.wireguardPeerId}) для пользователя ${user.firstName || user.username} (ID: ${user.userId}) был автоматически удален.`
-              );
-            } catch (wgDeleteError) {
-              console.error(`[Cron] Ошибка при удалении WireGuard клиента ${user.wireguardPeerId} для ${user.userId}:`, wgDeleteError.message);
-              await bot.telegram.sendMessage(
-                process.env.ADMIN_ID,
-                `⚠️ Ошибка автоматического удаления WireGuard клиента для пользователя ${user.firstName || user.username} (ID: ${user.userId}). ` +
-                `Peer ID: ${user.wireguardPeerId}. Причина: ${wgDeleteError.message}. Требуется ручная проверка.`
-              );
-            }
-          }
-
           await User.updateOne(
             { userId: user.userId },
-            {
-              status: 'inactive',
-              lastReminder: now,
-              wireguardPeerId: null, // Очищаем ID пира после удаления
-              wireguardClientName: null // Очищаем имя клиента
-            }
+            { 
+              status: 'inactive', // Изменяем статус на неактивный
+              lastReminder: now // Обновляем lastReminder, чтобы не отправлять это сообщение повторно каждый день
+            } 
           );
           console.log(`[Cron] Подписка пользователя ${user.userId} истекла, статус изменен на 'inactive'.`);
+          // Здесь можно добавить логику для отключения VPN доступа через ваш VPN-сервер, если такая интеграция есть
+          // Например: await vpnService.revokeAccess(user.userId);
         } catch (e) {
           console.error(`[Cron] Ошибка при обработке истекшей подписки для ${user.userId}:`, e.message);
         }
@@ -136,21 +119,21 @@ exports.setupReminders = (bot) => {
   cron.schedule('0 */3 * * *', async () => {
     console.log('[Cron] Запуск задачи экстренных напоминаний о вопросах...');
     try {
-      const now = new Date();
-      const urgentQuestions = await Question.countDocuments({
-        status: 'pending',
-        createdAt: { $lt: new Date(now.getTime() - 86400000) } // Вопросы старше 24 часов
-      });
-
-      if (urgentQuestions > 0) {
-        await bot.telegram.sendMessage(
-          process.env.ADMIN_ID,
-          `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
-        );
-        console.log(`[Cron] Отправлено экстренное напоминание админу о ${urgentQuestions} срочных вопросах.`);
-      }
+        const now = new Date();
+        const urgentQuestions = await Question.countDocuments({
+            status: 'pending',
+            createdAt: { $lt: new Date(now.getTime() - 86400000) } // Вопросы старше 24 часов
+        });
+        
+        if (urgentQuestions > 0) {
+            await bot.telegram.sendMessage(
+                process.env.ADMIN_ID,
+                `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
+            );
+            console.log(`[Cron] Отправлено экстренное напоминание админу о ${urgentQuestions} срочных вопросах.`);
+        }
     } catch (err) {
-      console.error('[Cron] Ошибка в задаче экстренных напоминаний:', err);
+        console.error('[Cron] Ошибка в задаче экстренных напоминаний:', err);
     }
   });
 

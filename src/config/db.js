@@ -1,8 +1,4 @@
-// config/db.js
-
-// !!! ВАЖНО: Убедитесь, что dotenv НЕ ЗАГРУЖАЕТСЯ здесь. Он должен быть загружен только один раз в bot.js.
-// require('dotenv').config({ path: __dirname + '/../primer.env' }); // <-- ЭТУ СТРОКУ УДАЛИТЬ, если она была!
-
+require('dotenv').config({ path: __dirname + '/../primer.env' });
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
@@ -16,17 +12,12 @@ const connectDB = async () => {
     console.log('✅ MongoDB connected');
   } catch (err) {
     console.error('❌ MongoDB connection error:', err);
-    // Важно: здесь мы выбрасываем ошибку, чтобы вызывающая функция (в bot.js)
-    // могла ее поймать и решить, что делать дальше (например, выйти из процесса).
-    // Повторное подключение теперь будет обрабатываться извне, если это необходимо
-    // через логику перезапуска PM2 или другую систему оркестрации.
-    throw err;
+    // Автоматический реконнект через 5 секунд
+    setTimeout(connectDB, 5000);
   }
 };
 
-// Обработчики событий подключения (оставьте их)
-// Эти обработчики будут срабатывать при потере и восстановлении соединения MongoDB
-// после успешного первоначального подключения.
+// Обработчики событий подключения
 mongoose.connection.on('disconnected', () => {
   console.log('⚠️ MongoDB disconnected');
 });

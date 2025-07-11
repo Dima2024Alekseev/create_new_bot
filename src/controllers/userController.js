@@ -1,16 +1,13 @@
-// controllers/userController.js
-
 const User = require('../models/User');
-const Question = require('../models/Question'); // Добавьте этот импорт, если его нет
 const { paymentDetails, formatDate, formatDuration } = require('../utils/helpers');
 const { checkAdmin } = require('./adminController');
 const { Markup } = require('telegraf');
 
-// === handleStart ===
 exports.handleStart = async (ctx) => {
   const { id, first_name } = ctx.from;
-
+  
   // === ЛОГИКА ДЛЯ АДМИНА ===
+  // Если пользователь является админом, показываем админ-панель с INLINE-клавиатурой
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
@@ -25,12 +22,13 @@ exports.handleStart = async (ctx) => {
             [{ text: 'Статистика', callback_data: 'show_stats_admin' }],
             [{ text: 'Все вопросы', callback_data: 'list_questions' }]
           ]
+          // Для InlineKeyboard не нужны resize_keyboard и one_time_keyboard
         }
       }
     );
   }
 
-  // === ЛОГИКА ДЛЯ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ ===
+  // === ЛОГИКА ДЛЯ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ (без изменений) ===
   const user = await User.findOne({ userId: id });
 
   let message = '';
@@ -40,16 +38,16 @@ exports.handleStart = async (ctx) => {
 
   if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
-
+    
     message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
-      message += `\nОсталось: ${formatDuration(timeLeft)}.`;
+        message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
-      message += `\nСрок действия истёк.`;
+        message += `\nСрок действия истёк.`;
     }
-
+    
     keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
-
+    
     // Показываем кнопку "Получить файл и инструкцию" только если это первая подписка
     if (!user.subscriptionCount || user.subscriptionCount === 1) {
       keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${id}` }]);
@@ -57,10 +55,10 @@ exports.handleStart = async (ctx) => {
 
   } else {
     message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-      `${paymentDetails(id, first_name)}\n\n` +
-      '_После оплаты отправьте скриншот чека_';
+              `${paymentDetails(id, first_name)}\n\n` +
+              '_После оплаты отправьте скриншот чека_';
   }
-
+  
   if (hasActiveOrPendingSubscription) {
     keyboardButtons.push(
       [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
@@ -74,7 +72,7 @@ exports.handleStart = async (ctx) => {
   // Для обычного пользователя продолжим использовать InlineKeyboard
   ctx.replyWithMarkdown(
     message,
-    {
+    { 
       disable_web_page_preview: true,
       reply_markup: {
         inline_keyboard: keyboardButtons
@@ -83,7 +81,6 @@ exports.handleStart = async (ctx) => {
   );
 };
 
-// === checkSubscriptionStatus ===
 exports.checkSubscriptionStatus = async (ctx) => {
   const { id, first_name } = ctx.from;
   const user = await User.findOne({ userId: id });
@@ -100,14 +97,14 @@ exports.checkSubscriptionStatus = async (ctx) => {
 
   if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
-
+    
     let message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
       message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
       message += `\nСрок действия истёк.`;
     }
-
+    
     await ctx.replyWithMarkdown(message);
   } else if (user?.status === 'pending') {
     await ctx.reply('⏳ Ваша заявка на оплату находится на проверке. Ожидайте подтверждения.');
@@ -124,7 +121,6 @@ exports.checkSubscriptionStatus = async (ctx) => {
   await ctx.answerCbQuery();
 };
 
-// === extendSubscription ===
 exports.extendSubscription = async (ctx) => {
   const { id, first_name } = ctx.from;
   await ctx.replyWithMarkdown(
@@ -137,13 +133,11 @@ exports.extendSubscription = async (ctx) => {
   await ctx.answerCbQuery();
 };
 
-// === promptForQuestion ===
 exports.promptForQuestion = async (ctx) => {
   await ctx.reply('✍️ Напишите ваш вопрос в следующем сообщении. Я передам его администратору.');
   await ctx.answerCbQuery();
 };
 
-// === requestVpnInfo ===
 exports.requestVpnInfo = async (ctx) => {
   const userId = parseInt(ctx.match[1]);
   const user = await User.findOne({ userId });
@@ -165,7 +159,7 @@ exports.requestVpnInfo = async (ctx) => {
   await ctx.answerCbQuery();
 };
 
-// === handleVpnConfigured ===
+// Обработка нажатия кнопки "Успешно настроил"
 exports.handleVpnConfigured = async (ctx) => {
   const userId = parseInt(ctx.match[1]);
   const user = await User.findOne({ userId });
@@ -174,16 +168,19 @@ exports.handleVpnConfigured = async (ctx) => {
     return ctx.answerCbQuery('Пользователь не найден.');
   }
 
+  // Проверяем, не подтверждал ли пользователь уже настройку
   if (user.vpnConfigured) {
     return ctx.answerCbQuery('Вы уже подтвердили успешную настройку ранее.');
   }
 
+  // Обновляем статус пользователя в базе данных
   await User.findOneAndUpdate(
     { userId },
     { vpnConfigured: true },
     { new: true }
   );
 
+  // Уведомляем администратора
   await ctx.telegram.sendMessage(
     process.env.ADMIN_ID,
     `🎉 Пользователь ${user.firstName || user.username || 'Без имени'} (ID: ${userId}) успешно настроил VPN!`
@@ -191,67 +188,4 @@ exports.handleVpnConfigured = async (ctx) => {
 
   await ctx.reply('Спасибо за подтверждение! Приятного использования VPN.');
   await ctx.answerCbQuery('Подтверждение получено!');
-};
-
-// === handleUserReplyKeyboard (новый) ===
-exports.handleUserReplyKeyboard = async (ctx) => {
-    const text = ctx.message.text;
-    switch (text) {
-        case '🗓 Моя подписка':
-            await exports.checkSubscriptionStatus(ctx);
-            break;
-        case '❓ Задать вопрос':
-            await exports.promptForQuestion(ctx);
-            break;
-        case '💰 Продлить VPN':
-            await exports.extendSubscription(ctx);
-            break;
-        case '📚 Мои вопросы':
-            await exports.showUserQuestions(ctx); // Вызываем новую функцию
-            break;
-        default:
-            // Этого не должно произойти, если кнопки обрабатываются явно.
-            // Но можно добавить запасной вариант.
-            await ctx.reply('Извините, я не понял эту команду. Пожалуйста, используйте кнопки.');
-            break;
-    }
-};
-
-// === showUserQuestions (новый) ===
-exports.showUserQuestions = async (ctx) => {
-    try {
-        const userId = ctx.from.id;
-
-        // Убедитесь, что импортировали модель Question вверху
-        const Question = require('../models/Question'); // Если еще не импортирован
-
-        const userQuestions = await Question.find({ userId: userId })
-                                          .sort({ createdAt: -1 })
-                                          .limit(10);
-
-        if (userQuestions.length === 0) {
-            return ctx.reply('У вас пока нет заданных вопросов.');
-        }
-
-        let message = '📚 *Ваши недавние вопросы:*\n\n';
-
-        for (const [index, question] of userQuestions.entries()) {
-            message += `*${index + 1}. Вопрос от ${formatDate(question.createdAt, true)}:*\n`;
-            message += `> ${question.questionText}\n`;
-            if (question.status === 'answered' && question.answerText) {
-                message += `*Ответ:* ${question.answerText}\n`;
-            } else if (question.status === 'pending') {
-                message += `_Статус:_ ⏳ Ожидает ответа\n`;
-            } else {
-                 message += `_Статус:_ ${question.status}\n`;
-            }
-            message += '\n';
-        }
-
-        await ctx.reply(message, { parse_mode: 'Markdown' });
-
-    } catch (error) {
-        console.error(`Ошибка при получении вопросов пользователя ${ctx.from.id}:`, error);
-        await ctx.reply('Произошла ошибка при попытке получить ваши вопросы. Пожалуйста, попробуйте позже.');
-    }
 };

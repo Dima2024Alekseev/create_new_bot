@@ -1,178 +1,116 @@
-// controllers/paymentController.js
 const User = require('../models/User');
-const { createWgClient } = require('../services/wireguardService'); // Импортируем WireGuard сервис
-const { checkAdmin } = require('./adminController'); // Убедимся, что импорт есть
-const { formatDate } = require('../utils/helpers'); // Убедимся, что импорт есть
-const { Markup } = require('telegraf'); // Убедимся, что импорт есть
+const { Markup } = require('telegraf');
+const { checkAdmin } = require('./adminController');
+const { formatDate } = require('../utils/helpers');
 
-// === handlePhoto ===
-// Эта функция должна быть здесь!
 exports.handlePhoto = async (ctx) => {
-    try {
-        if (!ctx.message.photo || ctx.message.photo.length === 0) {
-            return ctx.reply('Пожалуйста, отправьте фотографию чека.');
-        }
-
-        const photo = ctx.message.photo.pop(); // Берем фото наилучшего качества
-        const fileId = photo.file_id;
-        const userId = ctx.from.id;
-
-        // Сохраняем информацию о фото в базе данных пользователя
-        await User.findOneAndUpdate(
-            { userId },
-            {
-                paymentPhotoId: fileId,
-                status: 'pending', // Статус "ожидает проверки"
-                lastPaymentAttemptAt: new Date()
-            },
-            { upsert: true, new: true } // Создать, если нет, и вернуть обновленный документ
-        );
-
-        // Уведомляем администратора о новой заявке
-        const user = await User.findOne({ userId }); // Перезагружаем пользователя, чтобы получить актуальные данные
-
-        await ctx.telegram.sendMessage(
-            process.env.ADMIN_ID,
-            `💰 *Новая заявка на оплату от:* ${user.firstName || user.username || 'Пользователь без имени'} (ID: ${userId})\n` +
-            `Отправлен скриншот для проверки.`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            Markup.button.callback('✅ Подтвердить', `approve_${userId}`),
-                            Markup.button.callback('❌ Отклонить', `reject_${userId}`)
-                        ]
-                    ]
-                }
-            }
-        );
-
-        await ctx.reply('✅ Ваш скриншот отправлен на проверку администратору. Ожидайте подтверждения.');
-
-    } catch (error) {
-        console.error(`Ошибка при обработке фото от пользователя ${ctx.from.id}:`, error);
-        await ctx.reply('Произошла ошибка при обработке вашего чека. Пожалуйста, попробуйте еще раз или свяжитесь с поддержкой.');
+  const { id, first_name, username } = ctx.from;
+  
+  if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
+    return ctx.reply('Вы в режиме админа, скриншоты не требуются');
+  }
+  const photo = ctx.message.photo.pop();
+  
+  await User.findOneAndUpdate(
+    { userId: id },
+    {
+      userId: id,
+      username: username || first_name,
+      firstName: first_name,
+      paymentPhotoId: photo.file_id,
+      status: 'pending'
+    },
+    { upsert: true, new: true }
+  );
+  const keyboard = Markup.inlineKeyboard([
+    Markup.button.callback('✅ Принять', `approve_${id}`),
+    Markup.button.callback('❌ Отклонить', `reject_${id}`)
+  ]);
+  await ctx.telegram.sendPhoto(
+    process.env.ADMIN_ID,
+    photo.file_id,
+    {
+      caption: `📸 Новый платёж от ${first_name} (@${username || 'нет'})\nID: ${id}`,
+      ...keyboard
     }
+  );
+  await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
 };
 
-// === handleApprove ===
 exports.handleApprove = async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 У вас нет доступа к этой команде.');
-  }
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const userId = parseInt(ctx.match[1]);
 
-  const userId = parseInt(ctx.match[1]);
-  const user = await User.findOne({ userId });
+  const user = await User.findOne({ userId });
 
-  if (!user) {
-    return ctx.answerCbQuery('Пользователь не найден.');
-  }
+  let newExpireDate = new Date(); 
 
-  if (user.status === 'active') {
-    return ctx.answerCbQuery('Подписка пользователя уже активна.');
-  }
+  if (user && user.expireDate && user.expireDate > new Date()) {
+    newExpireDate = new Date(user.expireDate); 
+  }
+  
+  newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+  newExpireDate.setHours(23, 59, 59, 999);
 
-  try {
-    let clientData;
-    // 1. Создание WireGuard клиента
-    try {
-      clientData = await createWgClient(user.userId, user.firstName || user.username);
-      // Сохраняем ID и имя клиента WireGuard в MongoDB
-      user.wireguardPeerId = clientData.peerId;
-      user.wireguardClientName = clientData.clientName;
-    } catch (wgError) {
-      console.error(`[Approve] Ошибка создания WG клиента для ${userId}:`, wgError.message);
-      await ctx.telegram.sendMessage(
-        process.env.ADMIN_ID,
-        `⚠️ Ошибка: Не удалось создать WireGuard клиента для пользователя ${user.firstName || user.username} (ID: ${userId}). ` +
-        `Причина: ${wgError.message}. Подписка не активирована.`,
-        { reply_to_message_id: ctx.callbackQuery.message.message_id }
-      );
-      return ctx.answerCbQuery('Ошибка при создании WireGuard клиента.');
-    }
+  // Увеличиваем счетчик подписок
+  const updatedUser = await User.findOneAndUpdate(
+    { userId },
+    {
+      status: 'active',
+      expireDate: newExpireDate,
+      paymentPhotoId: null,
+      $inc: { subscriptionCount: 1 } // Увеличиваем subscriptionCount на 1
+    },
+    { new: true, upsert: true } // new: true - вернуть обновленный документ, upsert: true - создать, если не существует
+  );
 
-    // 2. Активация подписки в вашей БД
-    const newExpireDate = user.expireDate && user.expireDate > new Date()
-      ? new Date(user.expireDate.getTime() + 30 * 24 * 60 * 60 * 1000) // Добавляем 30 дней к текущей дате истечения
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Или 30 дней от сейчас
+  let message = `🎉 Платёж подтверждён!\n\n` +
+                `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n`;
+  
+  let keyboard = Markup.inlineKeyboard([]);
 
-    const update = {
-      status: 'active',
-      expireDate: newExpireDate,
-      paymentPhotoId: null, // Очищаем ID фото после обработки
-      paymentConfirmedAt: new Date(),
-      $inc: { subscriptionCount: 1 }, // Увеличиваем счетчик подписок
-      wireguardPeerId: clientData.peerId, // Сохраняем ID пира WireGuard
-      wireguardClientName: clientData.clientName // Сохраняем имя клиента WireGuard
-    };
+  // Если это первая подписка (subscriptionCount === 1), показываем инструкцию и кнопку
+  if (updatedUser.subscriptionCount === 1) {
+    message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
+    keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
+    ]);
+  } else {
+    // Для повторных подписок просто подтверждаем продление
+    message += `Ваша подписка успешно продлена.`;
+    // Здесь можно добавить другие кнопки, если нужно, например, "Задать вопрос"
+    // Но по условию, кнопку "Получить файл и инструкцию" не показываем.
+  }
 
-    const updatedUser = await User.findOneAndUpdate(
-      { userId },
-      update,
-      { new: true }
-    );
-
-    // 3. Отправка конфиг-файла пользователю
-    const configBuffer = Buffer.from(clientData.configFileContent, 'utf-8');
-    await ctx.telegram.sendDocument(userId, { source: configBuffer, filename: `${clientData.clientName}.conf` }, {
-        caption: '📁 Ваш файл конфигурации VPN WireGuard:'
-    });
-
-    // 4. Запрос на отправку видеоинструкции (как у вас уже реализовано)
-    // Теперь администратор будет только отправлять видеоинструкцию.
-    ctx.session.awaitingVpnVideoFor = userId; // Устанавливаем сессию для ожидания видео
-    await ctx.telegram.sendMessage(
-      process.env.ADMIN_ID,
-      `✅ Подписка пользователя ${user.firstName || user.username} (ID: ${userId}) активирована до ${formatDate(updatedUser.expireDate, true)}. ` +
-      `Файл конфигурации автоматически создан и отправлен пользователю (${clientData.clientName}). ` +
-      `*Теперь загрузите видеоинструкцию для этого пользователя:*`,
-      { parse_mode: 'Markdown', reply_to_message_id: ctx.callbackQuery.message.message_id }
-    );
-    await ctx.telegram.sendMessage(userId, '🎉 Ваша подписка активирована! Файл конфигурации отправлен. Ожидайте видеоинструкцию.');
-
-    await ctx.answerCbQuery('Подписка успешно активирована и файл отправлен.');
-
-  } catch (error) {
-    console.error(`Ошибка при подтверждении оплаты для ${userId}:`, error);
-    await ctx.reply(`⚠️ Произошла критическая ошибка при подтверждении оплаты для ${user.firstName || user.username}. Сообщите администратору.`);
-    await ctx.answerCbQuery('Произошла ошибка.');
-  }
+  await ctx.telegram.sendMessage(
+    userId,
+    message,
+    keyboard.reply_markup ? keyboard : {} // Отправляем клавиатуру только если она не пустая
+  );
+  await ctx.answerCbQuery('✅ Платёж принят');
+  await ctx.deleteMessage();
 };
 
-// === handleReject ===
-// Эта функция также должна быть здесь!
 exports.handleReject = async (ctx) => {
-    if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 У вас нет доступа к этой команде.');
-    }
-
-    const userId = parseInt(ctx.match[1]);
-    const user = await User.findOne({ userId });
-
-    if (!user) {
-        return ctx.answerCbQuery('Пользователь не найден.');
-    }
-
-    // Обновляем статус пользователя на "rejected" и очищаем photoId
-    await User.findOneAndUpdate(
-        { userId },
-        { status: 'rejected', paymentPhotoId: null },
-        { new: true }
-    );
-
-    // Уведомляем пользователя
-    await ctx.telegram.sendMessage(
-        userId,
-        '❌ Ваша заявка на оплату отклонена. Пожалуйста, убедитесь, что вы отправили корректный скриншот оплаты и попробуйте снова.'
-    );
-
-    // Уведомляем админа
-    await ctx.telegram.sendMessage(
-        process.env.ADMIN_ID,
-        `Отклонена заявка от пользователя ${user.firstName || user.username} (ID: ${userId}).`,
-        { reply_to_message_id: ctx.callbackQuery.message.message_id }
-    );
-
-    await ctx.answerCbQuery('Заявка отклонена.');
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const userId = parseInt(ctx.match[1]);
+  await User.findOneAndUpdate(
+    { userId },
+    { status: 'rejected' }
+  );
+  await ctx.telegram.sendMessage(
+    userId,
+    '❌ Платёж отклонён\n\n' +
+    'Возможные причины:\n' +
+    '- Неверная сумма\n' +
+    '- Нет комментария\n' +
+    '- Нечитаемый скриншот\n\n' +
+    'Попробуйте отправить чек ещё раз.'
+  );
+  await ctx.answerCbQuery('❌ Платёж отклонён');
+  await ctx.deleteMessage();
 };
