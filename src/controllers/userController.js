@@ -1,88 +1,37 @@
 const User = require('../models/User');
-const Question = require('../models/Question');
-const { paymentDetails, formatDate } = require('../utils/helpers');
-const { Markup } = require('telegraf');
+const { paymentDetails } = require('../utils/helpers');
 const { checkAdmin } = require('./adminController');
-
-// Главное меню пользователя
-const getUserMenu = () => Markup.keyboard([
-  ['📅 Срок действия подписки', '❓ Задать вопрос'],
-  ['📩 Посмотреть ответы']
-]).resize();
 
 exports.handleStart = async (ctx) => {
   const { id, first_name } = ctx.from;
   
+  // Проверяем режим админа
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
       'Команды:\n' +
       '/check - Проверить заявки\n' +
       '/stats - Статистика\n' +
-      '/switchmode - Переключиться в режим пользователя',
-      Markup.removeKeyboard()
+      '/switchmode - Переключиться в режим пользователя'
     );
   }
 
+  // Остальной код остается без изменений
   const user = await User.findOne({ userId: id });
   
-  let message = `Привет, ${first_name}!\n\n`;
-  let keyboard = getUserMenu();
-
   if (user?.status === 'active') {
-    message += `✅ *Ваша подписка активна до ${formatDate(user.expireDate)}*\n\n`;
-    message += 'Для продления отправьте новый скриншот оплаты.';
-  } else if (user?.status === 'pending') {
-    message += '⏳ Ваш платёж на проверке. Ожидайте подтверждения.';
-  } else if (user?.status === 'rejected') {
-    message += '❌ Ваш платёж был отклонён. Попробуйте отправить снова.';
-  } else {
-    message += `🔐 *VPN подписка: ${process.env.VPN_PRICE} руб/мес*\n\n`;
-    message += paymentDetails(id);
-    message += '\n\n_После оплаты отправьте скриншот чека_';
+    return ctx.replyWithMarkdown(
+      `✅ *Ваша подписка активна до ${user.expireDate.toLocaleDateString()}*\n\n` +
+      'Для продления отправьте новый скриншот оплаты.'
+    );
   }
 
-  await ctx.replyWithMarkdown(message, {
-    ...keyboard,
-    disable_web_page_preview: true
-  });
-};
-
-// Просмотр срока действия подписки
-exports.checkSubscription = async (ctx) => {
-  const user = await User.findOne({ userId: ctx.from.id });
-  
-  if (!user || user.status !== 'active') {
-    return ctx.reply('❌ У вас нет активной подписки');
-  }
-
-  const daysLeft = Math.ceil((user.expireDate - new Date()) / 86400000);
-  
-  await ctx.replyWithMarkdown(
-    `📅 *Срок действия подписки:*\n\n` +
-    `Активна до: ${formatDate(user.expireDate)}\n` +
-    `Осталось: ${daysLeft} дней\n\n` +
-    `Для продления отправьте скриншот оплаты.`
+  ctx.replyWithMarkdown(
+    `🔐 *VPN подписка: ${process.env.VPN_PRICE} руб/мес*\n\n` +
+    `${paymentDetails(id)}\n\n` +
+    '_После оплаты отправьте скриншот чека_',
+    { disable_web_page_preview: true }
   );
 };
 
-// Просмотр ответов на вопросы
-exports.checkAnswers = async (ctx) => {
-  const questions = await Question.find({ 
-    userId: ctx.from.id,
-    status: 'answered'
-  }).sort({ answeredAt: -1 }).limit(5);
-
-  if (!questions.length) {
-    return ctx.reply('ℹ️ У вас нет ответов на вопросы');
-  }
-
-  let message = '📩 *Последние ответы:*\n\n';
-  questions.forEach((q, i) => {
-    message += `${i+1}. Вопрос: "${q.questionText}"\n` +
-               `Ответ: "${q.answerText}"\n` +
-               `Дата: ${formatDate(q.answeredAt)}\n\n`;
-  });
-
-  await ctx.replyWithMarkdown(message);
-};
+//
