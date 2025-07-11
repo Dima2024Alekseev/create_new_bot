@@ -2,13 +2,13 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo, handleVpnConfigured } = require('./controllers/userController'); // Импортируем новую функцию
+const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo, handleVpnConfigured } = require('./controllers/userController');
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats, switchMode } = require('./controllers/adminController');
+const { checkPayments, stats } = require('./controllers/adminController'); // Убрали switchMode
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
-const { checkAdmin } = require('./controllers/adminController'); // Убедимся, что checkAdmin импортирован
-const { Markup } = require('telegraf'); // Добавим Markup для использования здесь
+const { checkAdmin } = require('./controllers/adminController');
+const { Markup } = require('telegraf');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: { 
@@ -83,7 +83,6 @@ bot.use(async (ctx, next) => {
         });
         await ctx.reply(`✅ Видеоинструкция успешно отправлена пользователю ${targetUserId}.`);
 
-        // НОВОЕ: Отправляем кнопку "Успешно настроил" после отправки видео
         await ctx.telegram.sendMessage(
             targetUserId,
             'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже:',
@@ -96,9 +95,9 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
       } finally {
-        ctx.session.awaitingVpnVideoFor = null; // Сбрасываем состояние после отправки видео (или ошибки)
+        ctx.session.awaitingVpnVideoFor = null;
       }
-      return; // Завершаем обработку
+      return;
     }
     
     if (ctx.message) {
@@ -116,7 +115,7 @@ bot.hears(/^[^\/].*/, handleQuestion);
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
-bot.command('switchmode', switchMode);
+// bot.command('switchmode', switchMode); // Убрали команду
 
 // Обработка платежей
 bot.on('photo', handlePhoto);
@@ -126,7 +125,7 @@ bot.on('photo', handlePhoto);
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
-bot.action('switch_mode', switchMode);
+// bot.action('switch_mode', switchMode); // Убрали кнопку переключения
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 
@@ -155,7 +154,6 @@ bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
-// НОВЫЙ ОБРАБОТЧИК КНОПКИ "УСПЕШНО НАСТРОИЛ"
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 
 

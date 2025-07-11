@@ -1,76 +1,44 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
+const { formatDate } = require('../utils/helpers');
+const { Markup } = require('telegraf'); // Добавим Markup для использования
 
-// Хранилище режимов админа
-const adminModes = {};
-
-// Проверка прав администратора с учетом режима
+// Проверка прав администратора (теперь без учета adminModes, так как режим переключения удален)
 exports.checkAdmin = (ctx) => {
-  return ctx.from.id === parseInt(process.env.ADMIN_ID) && 
-         (!adminModes[ctx.from.id] || adminModes[ctx.from.id] === 'admin');
-};
-
-// Переключение режима
-exports.switchMode = async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
-    return ctx.reply('🚫 Доступ только для админа');
-  }
-
-  const currentMode = adminModes[ctx.from.id] || 'admin';
-  const newMode = currentMode === 'admin' ? 'user' : 'admin';
-
-  adminModes[ctx.from.id] = newMode;
-
-  await ctx.reply(
-    `🔄 Режим изменен: ${newMode === 'admin' ? '👑 Администратор' : '👤 Обычный пользователь'}\n\n` +
-    `Теперь бот будет реагировать на вас как на ${newMode === 'admin' ? 'администратора' : 'обычного пользователя'}.\n\n` +
-    `Используйте /switchmode для обратного переключения.`
-  );
+  return ctx.from?.id === parseInt(process.env.ADMIN_ID);
 };
 
 exports.checkPayments = async (ctx) => {
   if (!exports.checkAdmin(ctx)) {
-    return ctx.reply('🚫 Доступ только для админа');
+    return ctx.reply('🚫 У вас нет доступа к этой команде.');
+  }
+  const pendingPayments = await User.find({ status: 'pending' });
+
+  if (pendingPayments.length === 0) {
+    return ctx.reply('✅ Нет ожидающих платежей.');
   }
 
-  try {
-    const pendingUsers = await User.find({ status: 'pending' })
-      .sort({ createdAt: 1 })
-      .limit(50);
-    
-    if (!pendingUsers.length) {
-      return ctx.reply('ℹ️ Нет заявок на проверку');
-    }
-
-    let message = '⏳ Ожидают проверки:\n\n';
-    pendingUsers.forEach((user, index) => {
-      message += `${index + 1}. ${user.firstName || 'Без имени'}`;
-      if (user.username) message += ` (@${user.username})`;
-      message += `\nID: ${user.userId}\n`;
-      message += `Дата: ${new Date(user.createdAt).toLocaleString('ru-RU')}\n\n`;
-    });
-
-    const buttons = [];
-    if (pendingUsers.length > 10) {
-      buttons.push([{ text: '🗑 Очистить все', callback_data: 'clear_payments' }]);
-    }
-
-    await ctx.reply(message, {
-      reply_markup: { inline_keyboard: buttons }
-    });
-
-  } catch (err) {
-    console.error('Ошибка при проверке платежей:', err);
-    await ctx.reply('⚠️ Произошла ошибка при загрузке данных');
+  for (const user of pendingPayments) {
+    const keyboard = Markup.inlineKeyboard([
+      Markup.button.callback('✅ Принять', `approve_${user.userId}`),
+      Markup.button.callback('❌ Отклонить', `reject_${user.userId}`)
+    ]);
+    await ctx.telegram.sendPhoto(
+      ctx.from.id,
+      user.paymentPhotoId,
+      {
+        caption: `📸 Новый платёж от ${user.firstName || user.username}\nID: ${user.userId}`,
+        ...keyboard
+      }
+    );
   }
+  await ctx.reply('🔍 Все ожидающие платежи отправлены.');
 };
 
 exports.stats = async (ctx) => {
   if (!exports.checkAdmin(ctx)) {
-    return ctx.reply('🚫 Доступ только для админа');
+    return ctx.reply('🚫 У вас нет доступа к этой команде.');
   }
-
-  const currentMode = adminModes[ctx.from.id] || 'admin';
 
   try {
     const [usersStats, questionsStats, expiringSoon] = await Promise.all([
@@ -83,38 +51,50 @@ exports.stats = async (ctx) => {
       User.find({ 
         status: 'active',
         expireDate: { $lt: new Date(Date.now() + 7 * 86400000) }
-      }).sort({ expireDate: 1 }).limit(5)
+      }).sort({ expireDate: 1 }).limit(5),
+      User.countDocuments({ vpnConfigured: true }) // Добавил подсчет успешно настроивших
     ]);
 
-    let statsText = '📊 *Статистика бота*\n\n';
-    
-    statsText += '👤 *Пользователи:*\n';
-    usersStats.forEach(stat => {
-      statsText += `- ${stat._id}: ${stat.count}\n`;
-    });
+    // Важно: если usersStats - это массив результатов aggregation, нужно его обработать
+    const userStatusCounts = usersStats.reduce((acc, curr) => {
+        acc[curr._id] = curr.count;
+        return acc;
+    }, {});
 
-    statsText += '\n❓ *Вопросы:*\n';
-    questionsStats.forEach(stat => {
-      statsText += `- ${stat._id}: ${stat.count}\n`;
-    });
+    const questionStatusCounts = questionsStats.reduce((acc, curr) => {
+        acc[curr._id] = curr.count;
+        return acc;
+    }, {});
 
-    statsText += '\n🔔 *Ближайшие истечения:*\n';
+    const totalUsers = await User.countDocuments(); // Общее количество пользователей
+    const activeUsers = userStatusCounts['active'] || 0;
+    const pendingPayments = userStatusCounts['pending'] || 0;
+    const totalQuestions = await Question.countDocuments(); // Общее количество вопросов
+    const pendingQuestions = questionStatusCounts['pending'] || 0;
+    const configuredUsers = await User.countDocuments({ vpnConfigured: true }); // Получаем количество из запроса
+
+    let message = `📊 *Статистика бота*\n\n` +
+                  `👤 Всего пользователей: ${totalUsers}\n` +
+                  `🟢 Активных подписок: ${activeUsers}\n` +
+                  `⏳ Ожидающих платежей: ${pendingPayments}\n` +
+                  `❓ Всего вопросов: ${totalQuestions}\n` +
+                  `💬 Неотвеченных вопросов: ${pendingQuestions}\n` +
+                  `✅ Успешно настроили VPN: ${configuredUsers}\n\n`;
+
+    message += `🔔 *Ближайшие истечения:*\n`;
     if (expiringSoon.length > 0) {
       expiringSoon.forEach(user => {
         const daysLeft = Math.ceil((user.expireDate - new Date()) / 86400000);
-        statsText += `- ${user.firstName}: через ${daysLeft} дней (${user.expireDate.toLocaleDateString('ru-RU')})\n`;
+        message += `- ${user.firstName || user.username || 'Без имени'}: через ${daysLeft} дней (${formatDate(user.expireDate)})\n`;
       });
     } else {
-      statsText += 'Нет подписок, истекающих в ближайшую неделю\n';
+      message += 'Нет подписок, истекающих в ближайшую неделю.\n';
     }
 
-    statsText += `\nТекущий режим: ${currentMode === 'admin' ? '👑 Админ' : '👤 Пользователь'}`;
-
-    await ctx.replyWithMarkdown(statsText, {
+    await ctx.replyWithMarkdown(message, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }],
-          [{ text: '🔀 Сменить режим', callback_data: 'switch_mode' }]
+          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }] // Убрал кнопку 'Сменить режим'
         ]
       }
     });
@@ -123,4 +103,32 @@ exports.stats = async (ctx) => {
     console.error('Ошибка при формировании статистики:', err);
     await ctx.reply('⚠️ Произошла ошибка при загрузке статистики');
   }
+};
+
+exports.listQuestions = async (ctx) => {
+  if (!exports.checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const questions = await Question.find({ status: 'pending' }).sort({ createdAt: 1 });
+
+  if (questions.length === 0) {
+    await ctx.reply('✅ Нет неотвеченных вопросов.');
+    return ctx.answerCbQuery();
+  }
+
+  for (const q of questions) {
+    const keyboard = Markup.inlineKeyboard([
+      Markup.button.callback('✍️ Ответить', `answer_${q.userId}`)
+    ]);
+    const user = await User.findOne({ userId: q.userId });
+    await ctx.replyWithMarkdown(
+      `❓ Новый вопрос от ${user ? user.firstName || user.username || 'Без имени' : 'Неизвестный'} (@${user?.username || 'нет'}):\n` +
+      `"${q.text}"\n` +
+      `ID пользователя: ${q.userId}\n` +
+      `Время: ${formatDate(q.createdAt)}`,
+      keyboard
+    );
+  }
+  await ctx.answerCbQuery();
 };

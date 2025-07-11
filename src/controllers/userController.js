@@ -6,27 +6,30 @@ const { Markup } = require('telegraf');
 exports.handleStart = async (ctx) => {
   const { id, first_name } = ctx.from;
   
+  // === ЛОГИКА ДЛЯ АДМИНА ===
+  // Если пользователь является админом, показываем админ-панель с ReplyKeyboard
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
       '👋 *Админ-панель*\n\n' +
       'Команды:\n' +
       '/check - Проверить заявки\n' +
       '/stats - Статистика\n' +
-      '/questions - Все вопросы\n' +
-      '/switchmode - Переключиться в режим пользователя',
+      '/questions - Все вопросы', // Убрал упоминание /switchmode
       {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Проверить заявки', callback_data: 'check_payments_admin' }],
-            [{ text: 'Статистика', callback_data: 'show_stats_admin' }],
-            [{ text: 'Все вопросы', callback_data: 'list_questions' }],
-            [{ text: 'Сменить режим', callback_data: 'switch_mode' }]
-          ]
+        reply_markup: { // Используем ReplyKeyboardMarkup
+          keyboard: [
+            [{ text: '🖥 Мониторинг' }, { text: '⚙️ Управление' }],
+            [{ text: '🔒 Безопасность' }, { text: '📸 Скриншот' }],
+            [{ text: '❓ Помощь' }]
+          ],
+          resize_keyboard: true, // Делает клавиатуру компактнее
+          one_time_keyboard: false // Клавиатура будет видна всегда
         }
       }
     );
   }
 
+  // === ЛОГИКА ДЛЯ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ ===
   const user = await User.findOne({ userId: id });
 
   let message = '';
@@ -46,17 +49,10 @@ exports.handleStart = async (ctx) => {
     
     keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
     
+    // Показываем кнопку "Получить файл и инструкцию" только если это первая подписка
     if (!user.subscriptionCount || user.subscriptionCount === 1) {
       keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${id}` }]);
     }
-    // Если пользователь еще не подтвердил настройку, можно показать кнопку здесь
-    // Но по условию, она появляется после получения файла, что более логично.
-    // Если хотите, чтобы она была и в /start для активных пользователей, раскомментируйте:
-    /*
-    if (user.subscriptionCount === 1 && !user.vpnConfigured) {
-        keyboardButtons.push([{ text: '✅ Успешно настроил', callback_data: `vpn_configured_${id}` }]);
-    }
-    */
 
   } else {
     message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
@@ -74,6 +70,7 @@ exports.handleStart = async (ctx) => {
     [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
   );
 
+  // Для обычного пользователя продолжим использовать InlineKeyboard
   ctx.replyWithMarkdown(
     message,
     { 
@@ -163,7 +160,7 @@ exports.requestVpnInfo = async (ctx) => {
   await ctx.answerCbQuery();
 };
 
-// НОВАЯ ФУНКЦИЯ: Обработка нажатия кнопки "Успешно настроил"
+// Обработка нажатия кнопки "Успешно настроил"
 exports.handleVpnConfigured = async (ctx) => {
   const userId = parseInt(ctx.match[1]);
   const user = await User.findOne({ userId });
@@ -172,12 +169,12 @@ exports.handleVpnConfigured = async (ctx) => {
     return ctx.answerCbQuery('Пользователь не найден.');
   }
 
+  // Проверяем, не подтверждал ли пользователь уже настройку
   if (user.vpnConfigured) {
-    // Если уже настроено, просто закрываем уведомление
     return ctx.answerCbQuery('Вы уже подтвердили успешную настройку ранее.');
   }
 
-  // Обновляем статус пользователя
+  // Обновляем статус пользователя в базе данных
   await User.findOneAndUpdate(
     { userId },
     { vpnConfigured: true },
