@@ -4,52 +4,58 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 class PaymentService {
+  static async getAuthToken() {
+    try {
+      const response = await axios.post(
+        `${process.env.WG_EASY_URL}/api/session`,
+        {
+          username: process.env.WG_EASY_USERNAME,
+          password: process.env.WG_EASY_PASSWORD
+        },
+        {
+          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return response.data.token;
+    } catch (err) {
+      console.error('Auth error:', {
+        config: err.config,
+        response: err.response?.data
+      });
+      throw new Error('Ошибка аутентификации в WG-Easy');
+    }
+  }
+
   static async generateVpnCredentials(user) {
     try {
       const username = `user_${user.userId}_${uuidv4().split('-')[0]}`;
       const password = this.generatePassword();
+      const authToken = await this.getAuthToken();
 
-      console.log(`[WG-Easy] Creating user: ${username}`);
+      console.log(`Creating VPN user: ${username}`);
 
-      // 1. Аутентификация в WG-Easy API
-      const authResponse = await axios.post(
-        `${process.env.WG_EASY_URL}/api/session`,
-        {}, // Пустое тело запроса
-        {
-          auth: {
-            username: process.env.WG_EASY_USERNAME,
-            password: process.env.WG_EASY_PASSWORD
-          },
-          timeout: 10000
-        }
-      );
-
-      if (!authResponse.data?.token) {
-        throw new Error('Не удалось получить токен авторизации');
-      }
-
-      // 2. Создание пользователя VPN
+      // Создание пользователя
       const createResponse = await axios.post(
         `${process.env.WG_EASY_URL}/api/users`,
+        { name: username, password },
         {
-          name: username,
-          password: password
-        },
-        {
+          timeout: 10000,
           headers: {
-            'Authorization': `Bearer ${authResponse.data.token}`,
+            'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
-          },
-          timeout: 10000
+          }
         }
       );
 
       if (!createResponse.data?.name) {
-        throw new Error('Не удалось создать пользователя VPN');
+        throw new Error('Invalid user creation response');
       }
 
-      // 3. Получение конфигурационного файла
-      const configPath = await this.downloadConfig(username);
+      // Получение конфига
+      const configPath = await this.downloadConfig(username, authToken);
       
       return {
         username,
@@ -58,16 +64,15 @@ class PaymentService {
         configFile: `wg_${username}.conf`
       };
     } catch (err) {
-      console.error('WG-Easy API error:', {
+      console.error('VPN Creation Error:', {
         message: err.message,
-        response: err.response?.data,
-        url: err.config?.url
+        stack: err.stack
       });
-      throw new Error(`Не удалось создать VPN конфигурацию: ${err.message}`);
+      throw new Error(`Не удалось создать VPN: ${err.message}`);
     }
   }
 
-  static async downloadConfig(username) {
+  static async downloadConfig(username, authToken) {
     const configDir = path.join(__dirname, '../../temp_configs');
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
@@ -76,16 +81,14 @@ class PaymentService {
     const configPath = path.join(configDir, `wg_${username}.conf`);
     
     try {
-      // Получаем конфиг с авторизацией через Basic Auth
       const response = await axios.get(
         `${process.env.WG_EASY_URL}/api/wireguard/client/${username}/configuration`,
         {
-          auth: {
-            username: process.env.WG_EASY_USERNAME,
-            password: process.env.WG_EASY_PASSWORD
-          },
           responseType: 'stream',
-          timeout: 10000
+          timeout: 10000,
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
         }
       );
 
@@ -95,9 +98,9 @@ class PaymentService {
       return new Promise((resolve, reject) => {
         writer.on('finish', () => {
           const content = fs.readFileSync(configPath, 'utf8');
-          if (!content.includes('[Interface]') || !content.includes('[Peer]')) {
+          if (!content.includes('[Interface]')) {
             fs.unlinkSync(configPath);
-            reject(new Error('Получен невалидный конфигурационный файл'));
+            reject(new Error('Invalid config content'));
           } else {
             resolve(configPath);
           }
@@ -112,60 +115,25 @@ class PaymentService {
     }
   }
 
+  static generatePassword() {
+    return Math.random().toString(36).slice(-8);
+  }
+
   static async removeUserFromWg(username) {
     try {
-      // Аутентификация
-      const authResponse = await axios.post(
-        `${process.env.WG_EASY_URL}/api/session`,
-        {},
-        {
-          auth: {
-            username: process.env.WG_EASY_USERNAME,
-            password: process.env.WG_EASY_PASSWORD
-          },
-          timeout: 5000
-        }
-      );
-
-      // Удаление пользователя
+      const authToken = await this.getAuthToken();
       await axios.delete(
         `${process.env.WG_EASY_URL}/api/users/${username}`,
         {
           headers: {
-            'Authorization': `Bearer ${authResponse.data.token}`
-          },
-          timeout: 5000
+            'Authorization': `Bearer ${authToken}`
+          }
         }
       );
     } catch (err) {
-      console.error('Ошибка при удалении пользователя из WG:', err.message);
-      throw new Error('Не удалось удалить пользователя VPN');
-    }
-  }
-
-  static async checkUserInWg(username) {
-    try {
-      const response = await axios.get(
-        `${process.env.WG_EASY_URL}/api/users/${username}`,
-        {
-          auth: {
-            username: process.env.WG_EASY_USERNAME,
-            password: process.env.WG_EASY_PASSWORD
-          },
-          timeout: 5000
-        }
-      );
-      return response.data?.name === username;
-    } catch (err) {
-      if (err.response?.status === 404) {
-        return false;
-      }
+      console.error('User removal error:', err.message);
       throw err;
     }
-  }
-
-  static generatePassword() {
-    return Math.random().toString(36).slice(-8);
   }
 }
 
