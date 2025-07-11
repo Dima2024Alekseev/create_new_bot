@@ -2,7 +2,7 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const { handleStart, checkSubscription, checkAnswers } = require('./controllers/userController');
+const { handleStart } = require('./controllers/userController');
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, switchMode } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
@@ -41,11 +41,6 @@ process.on('uncaughtException', async (err) => {
 // Пользовательские
 bot.start(handleStart);
 bot.hears(/^[^\/].*/, handleQuestion);
-
-// Обработка кнопок пользователя
-bot.hears('📅 Срок действия подписки', checkSubscription);
-bot.hears('❓ Задать вопрос', (ctx) => ctx.reply('Напишите ваш вопрос текстом и отправьте его'));
-bot.hears('📩 Посмотреть ответы', checkAnswers);
 
 // Админские
 bot.command('check', checkPayments);

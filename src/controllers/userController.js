@@ -8,7 +8,7 @@ const { checkAdmin } = require('./adminController');
 const getUserMenu = () => Markup.keyboard([
   ['📅 Срок действия подписки', '❓ Задать вопрос'],
   ['📩 Посмотреть ответы']
-]).resize().oneTime();
+]).resize();
 
 exports.handleStart = async (ctx) => {
   const { id, first_name } = ctx.from;
@@ -66,11 +66,6 @@ exports.checkSubscription = async (ctx) => {
   );
 };
 
-// Обработка кнопки "Задать вопрос"
-exports.startQuestion = async (ctx) => {
-  await ctx.reply('Напишите ваш вопрос текстом и отправьте его. Администратор ответит в ближайшее время.');
-};
-
 // Просмотр ответов на вопросы
 exports.checkAnswers = async (ctx) => {
   const questions = await Question.find({ 
@@ -79,14 +74,14 @@ exports.checkAnswers = async (ctx) => {
   }).sort({ answeredAt: -1 }).limit(5);
 
   if (!questions.length) {
-    return ctx.reply('ℹ️ У вас пока нет ответов на вопросы');
+    return ctx.reply('ℹ️ У вас нет ответов на вопросы');
   }
 
-  let message = '📩 *Последние ответы администратора:*\n\n';
+  let message = '📩 *Последние ответы:*\n\n';
   questions.forEach((q, i) => {
-    message += `❓ *Вопрос:* ${q.questionText}\n` +
-               `📩 *Ответ:* ${q.answerText}\n` +
-               `📅 ${formatDate(q.answeredAt)}\n\n`;
+    message += `${i+1}. Вопрос: "${q.questionText}"\n` +
+               `Ответ: "${q.answerText}"\n` +
+               `Дата: ${formatDate(q.answeredAt)}\n\n`;
   });
 
   await ctx.replyWithMarkdown(message);
