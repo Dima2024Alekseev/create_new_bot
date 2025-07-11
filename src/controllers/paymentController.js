@@ -57,7 +57,7 @@ module.exports = {
   /**
    * Подтверждение платежа админом
    */
-  const handleApprove = async (ctx) => {
+  handleApprove: async (ctx) => {  // <-- Исправлено здесь
     const userId = parseInt(ctx.match[1]);
     const expireDate = new Date();
     expireDate.setDate(expireDate.getDate() + parseInt(process.env.VPN_DURATION));
