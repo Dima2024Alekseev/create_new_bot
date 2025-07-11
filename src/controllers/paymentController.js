@@ -48,6 +48,7 @@ exports.handleApprove = async (ctx) => {
   const userId = parseInt(ctx.match[1]);
   const expireDate = new Date();
   expireDate.setMonth(expireDate.getMonth() + 1);
+  expireDate.setHours(23, 59, 59, 999); // Устанавливаем на конец дня
 
   await User.findOneAndUpdate(
     { userId },
