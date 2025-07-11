@@ -54,27 +54,40 @@ exports.handleApprove = async (ctx) => {
   newExpireDate.setMonth(newExpireDate.getMonth() + 1);
   newExpireDate.setHours(23, 59, 59, 999);
 
-  await User.findOneAndUpdate(
+  // Увеличиваем счетчик подписок
+  const updatedUser = await User.findOneAndUpdate(
     { userId },
     {
       status: 'active',
       expireDate: newExpireDate,
-      paymentPhotoId: null 
+      paymentPhotoId: null,
+      $inc: { subscriptionCount: 1 } // Увеличиваем subscriptionCount на 1
     },
-    { new: true }
+    { new: true, upsert: true } // new: true - вернуть обновленный документ, upsert: true - создать, если не существует
   );
 
-  // Добавляем кнопку "Получить файл и инструкцию"
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
-  ]);
+  let message = `🎉 Платёж подтверждён!\n\n` +
+                `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n`;
+  
+  let keyboard = Markup.inlineKeyboard([]);
+
+  // Если это первая подписка (subscriptionCount === 1), показываем инструкцию и кнопку
+  if (updatedUser.subscriptionCount === 1) {
+    message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
+    keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
+    ]);
+  } else {
+    // Для повторных подписок просто подтверждаем продление
+    message += `Ваша подписка успешно продлена.`;
+    // Здесь можно добавить другие кнопки, если нужно, например, "Задать вопрос"
+    // Но по условию, кнопку "Получить файл и инструкцию" не показываем.
+  }
 
   await ctx.telegram.sendMessage(
     userId,
-    `🎉 Платёж подтверждён!\n\n` +
-    `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n` +
-    `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`,
-    keyboard
+    message,
+    keyboard.reply_markup ? keyboard : {} // Отправляем клавиатуру только если она не пустая
   );
   await ctx.answerCbQuery('✅ Платёж принят');
   await ctx.deleteMessage();

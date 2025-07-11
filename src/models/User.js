@@ -1,19 +1,32 @@
-const { Schema, model } = require('mongoose');
+const mongoose = require('mongoose');
 
-const userSchema = new Schema({
-  userId: { type: Number, required: true, unique: true },
+const userSchema = new mongoose.Schema({
+  userId: {
+    type: Number,
+    required: true,
+    unique: true,
+  },
   username: String,
   firstName: String,
-  lastName: String,
-  status: { 
-    type: String, 
-    enum: ['pending', 'active', 'rejected'], 
-    default: 'pending' 
-  },
   paymentPhotoId: String,
-  startDate: { type: Date, default: Date.now },
-  expireDate: Date,
-  lastReminder: Date
-}, { timestamps: true });
+  status: {
+    type: String,
+    enum: ['active', 'pending', 'rejected', 'inactive'], // Добавил 'inactive' для ясности
+    default: 'inactive', // По умолчанию пользователь неактивен
+  },
+  expireDate: {
+    type: Date,
+    default: null,
+  },
+  // НОВОЕ ПОЛЕ: Количество подписок/продлений
+  subscriptionCount: {
+    type: Number,
+    default: 0, // По умолчанию 0, будет увеличиваться при каждом одобрении платежа
+  },
+  isAdmin: { // Добавил, если у вас есть такое поле для админ-режима
+    type: Boolean,
+    default: false,
+  }
+});
 
-module.exports = model('User', userSchema);
+module.exports = mongoose.model('User', userSchema);
