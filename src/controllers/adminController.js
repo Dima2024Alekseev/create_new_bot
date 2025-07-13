@@ -31,7 +31,7 @@ exports.checkPayments = async (ctx) => {
         // Если нет ожидающих платежей
         if (pendingUsers.length === 0) {
             await ctx.reply('✅ Нет ожидающих платежей для проверки.');
-            return ctx.answerCbQuery(); 
+            return ctx.answerCbQuery();
         }
 
         // Перебираем каждую заявку
@@ -41,13 +41,13 @@ exports.checkPayments = async (ctx) => {
                           `ID: ${user.userId}\n` +
                           `Имя: ${user.firstName || 'Не указано'}\n` +
                           `Username: ${user.username ? `@${user.username}` : 'Не указан'}\n` +
-                          `Дата подачи: ${user.paymentScreenshotDate ? formatDate(user.paymentScreenshotDate) : 'Не указана'}`; 
+                          `Дата подачи: ${user.paymentPhotoDate ? formatDate(user.paymentPhotoDate) : 'Не указана'}`; // ИЗМЕНЕНО: user.paymentPhotoDate
             
             // Если ID скриншота присутствует, отправляем фото
-            if (user.paymentScreenshotId) {
+            if (user.paymentPhotoId) { // ИЗМЕНЕНО: user.paymentPhotoId
                 await ctx.telegram.sendPhoto(
                     ctx.chat.id, 
-                    user.paymentScreenshotId,
+                    user.paymentPhotoId, // ИЗМЕНЕНО: user.paymentPhotoId
                     {
                         caption: message,
                         parse_mode: 'Markdown',
@@ -62,7 +62,7 @@ exports.checkPayments = async (ctx) => {
                     }
                 );
             } else {
-                // Если paymentScreenshotId отсутствует, отправляем текстовое уведомление
+                // Если paymentPhotoId отсутствует, отправляем текстовое уведомление
                 await ctx.replyWithMarkdown(
                     `⚠️ *Заявка от пользователя ${user.firstName || user.username || 'Без имени'} (ID: ${user.userId}) без скриншота!*\n` +
                     `Возможно, пользователь не отправил фото или произошла ошибка сохранения.\n\n` +
@@ -71,7 +71,7 @@ exports.checkPayments = async (ctx) => {
                 );
             }
         }
-        await ctx.answerCbQuery(); 
+        await ctx.answerCbQuery();
     } catch (error) {
         console.error('Ошибка при проверке платежей:', error);
         // Отвечаем на callbackQuery, если вызов был по кнопке
@@ -93,7 +93,7 @@ exports.stats = async (ctx) => {
         if (ctx.callbackQuery) {
             return ctx.answerCbQuery('🚫 Только для админа');
         }
-        return; 
+        return;
     }
 
     try {
@@ -137,13 +137,13 @@ exports.stats = async (ctx) => {
         
         // Отвечаем на callbackQuery, если вызов был по кнопке "Обновить"
         if (ctx.callbackQuery) {
-            await ctx.answerCbQuery('Статистика обновлена!'); 
+            await ctx.answerCbQuery('Статистика обновлена!');
         }
 
     } catch (error) {
         console.error('Ошибка при получении статистики:', error);
         if (ctx.callbackQuery) {
-             await ctx.reply('⚠️ Произошла ошибка при обновлении статистики.'); 
+             await ctx.reply('⚠️ Произошла ошибка при обновлении статистики.');
              await ctx.answerCbQuery('Ошибка!');
         } else {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
