@@ -10,11 +10,7 @@ exports.handleStart = async (ctx) => {
   // Если пользователь является админом, показываем админ-панель с INLINE-клавиатурой
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.replyWithMarkdown(
-      '👋 *Админ-панель*\n\n' +
-      'Команды:\n' +
-      '/check - Проверить заявки\n' +
-      '/stats - Статистика\n' +
-      '/questions - Все вопросы',
+      '👋 *Админ-панель*\n\n',
       {
         reply_markup: { // Используем InlineKeyboardMarkup
           inline_keyboard: [
