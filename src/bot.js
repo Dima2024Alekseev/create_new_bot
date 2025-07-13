@@ -12,17 +12,16 @@ const {
   promptForQuestion, 
   requestVpnInfo, 
   handleVpnConfigured, 
-  promptVpnFailure, // Добавил promptVpnFailure
-  promptCancelSubscription, // Добавил promptCancelSubscription
-  cancelSubscriptionFinal, // Добавил cancelSubscriptionFinal
-  cancelSubscriptionAbort // Добавил cancelSubscriptionAbort
+  promptVpnFailure, 
+  promptCancelSubscription, 
+  cancelSubscriptionFinal, 
+  cancelSubscriptionAbort 
 } = require('./controllers/userController'); 
 
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats } = require('./controllers/adminController'); 
+const { checkPayments, stats, checkAdmin } = require('./controllers/adminController'); // Убедитесь, что stats и checkAdmin импортированы
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
-const { checkAdmin } = require('./controllers/adminController');
 
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
@@ -223,6 +222,7 @@ bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
+bot.action('refresh_stats', stats); // НОВЫЙ ОБРАБОТЧИК: Кнопка "Обновить" для статистики
 
 bot.action(/answer_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {

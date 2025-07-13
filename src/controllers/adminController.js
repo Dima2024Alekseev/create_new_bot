@@ -1,134 +1,119 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { formatDate } = require('../utils/helpers');
-const { Markup } = require('telegraf'); // Добавим Markup для использования
+const { Markup } = require('telegraf'); // Убедитесь, что Markup импортирован
 
-// Проверка прав администратора (теперь без учета adminModes, так как режим переключения удален)
 exports.checkAdmin = (ctx) => {
-  return ctx.from?.id === parseInt(process.env.ADMIN_ID);
+    return ctx.from && ctx.from.id === parseInt(process.env.ADMIN_ID);
 };
 
 exports.checkPayments = async (ctx) => {
-  if (!exports.checkAdmin(ctx)) {
-    return ctx.reply('🚫 У вас нет доступа к этой команде.');
-  }
-  const pendingPayments = await User.find({ status: 'pending' });
+    if (!exports.checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
 
-  if (pendingPayments.length === 0) {
-    return ctx.reply('✅ Нет ожидающих платежей.');
-  }
+    try {
+        const pendingUsers = await User.find({ status: 'pending' });
 
-  for (const user of pendingPayments) {
-    const keyboard = Markup.inlineKeyboard([
-      Markup.button.callback('✅ Принять', `approve_${user.userId}`),
-      Markup.button.callback('❌ Отклонить', `reject_${user.userId}`)
-    ]);
-    await ctx.telegram.sendPhoto(
-      ctx.from.id,
-      user.paymentPhotoId,
-      {
-        caption: `📸 Новый платёж от ${user.firstName || user.username}\nID: ${user.userId}`,
-        ...keyboard
-      }
-    );
-  }
-  await ctx.reply('🔍 Все ожидающие платежи отправлены.');
+        if (pendingUsers.length === 0) {
+            await ctx.reply('✅ Нет ожидающих платежей для проверки.');
+            return ctx.answerCbQuery();
+        }
+
+        for (const user of pendingUsers) {
+            let message = `📸 *Заявка на оплату от пользователя:*\n` +
+                          `ID: ${user.userId}\n` +
+                          `Имя: ${user.firstName || 'Не указано'}\n` +
+                          `Username: ${user.username ? `@${user.username}` : 'Не указан'}\n` +
+                          `Дата подачи: ${formatDate(user.paymentScreenshotDate)}`;
+
+            await ctx.telegram.sendPhoto(
+                ctx.chat.id, // Отправляем фото в чат админа
+                user.paymentScreenshotId,
+                {
+                    caption: message,
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '✅ Одобрить', callback_data: `approve_${user.userId}` },
+                                { text: '❌ Отклонить', callback_data: `reject_${user.userId}` }
+                            ]
+                        ]
+                    }
+                }
+            );
+        }
+        await ctx.answerCbQuery();
+    } catch (error) {
+        console.error('Ошибка при проверке платежей:', error);
+        await ctx.reply('⚠️ Произошла ошибка при проверке платежей.');
+        await ctx.answerCbQuery('Ошибка!');
+    }
 };
 
 exports.stats = async (ctx) => {
-  if (!exports.checkAdmin(ctx)) {
-    return ctx.reply('🚫 У вас нет доступа к этой команде.');
-  }
-
-  try {
-    const [usersStats, questionsStats, expiringSoon] = await Promise.all([
-      User.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      Question.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } }
-      ]),
-      User.find({
-        status: 'active',
-        expireDate: { $lt: new Date(Date.now() + 7 * 86400000) }
-      }).sort({ expireDate: 1 }).limit(5),
-      User.countDocuments({ vpnConfigured: true }) // Добавил подсчет успешно настроивших
-    ]);
-
-    // Важно: если usersStats - это массив результатов aggregation, нужно его обработать
-    const userStatusCounts = usersStats.reduce((acc, curr) => {
-      acc[curr._id] = curr.count;
-      return acc;
-    }, {});
-
-    const questionStatusCounts = questionsStats.reduce((acc, curr) => {
-      acc[curr._id] = curr.count;
-      return acc;
-    }, {});
-
-    const totalUsers = await User.countDocuments(); // Общее количество пользователей
-    const activeUsers = userStatusCounts['active'] || 0;
-    const pendingPayments = userStatusCounts['pending'] || 0;
-    const totalQuestions = await Question.countDocuments(); // Общее количество вопросов
-    const pendingQuestions = questionStatusCounts['pending'] || 0;
-    const configuredUsers = await User.countDocuments({ vpnConfigured: true }); // Получаем количество из запроса
-
-    let message = `📊 *Статистика бота*\n\n` +
-      `👤 Всего пользователей: ${totalUsers}\n` +
-      `🟢 Активных подписок: ${activeUsers}\n` +
-      `⏳ Ожидающих платежей: ${pendingPayments}\n` +
-      `❓ Всего вопросов: ${totalQuestions}\n` +
-      `💬 Неотвеченных вопросов: ${pendingQuestions}\n` +
-      `✅ Успешно настроили VPN: ${configuredUsers}\n\n`;
-
-    message += `🔔 *Ближайшие истечения:*\n`;
-    if (expiringSoon.length > 0) {
-      expiringSoon.forEach(user => {
-        const daysLeft = Math.ceil((user.expireDate - new Date()) / 86400000);
-        message += `- ${user.firstName || user.username || 'Без имени'}: через ${daysLeft} дней (${formatDate(user.expireDate)})\n`;
-      });
-    } else {
-      message += 'Нет подписок, истекающих в ближайшую неделю.\n';
+    if (!exports.checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
     }
 
-    await ctx.replyWithMarkdown(message, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }] // Убрал кнопку 'Сменить режим'
-        ]
-      }
-    });
+    try {
+        const totalUsers = await User.countDocuments();
+        const activeUsers = await User.countDocuments({ status: 'active' });
+        const pendingPayments = await User.countDocuments({ status: 'pending' });
+        const pendingQuestions = await Question.countDocuments({ status: 'pending' });
+        const last7DaysUsers = await User.countDocuments({
+            createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+        });
 
-  } catch (err) {
-    console.error('Ошибка при формировании статистики:', err);
-    await ctx.reply('⚠️ Произошла ошибка при загрузке статистики');
-  }
-};
+        // Находим пользователя с самой поздней датой истечения подписки
+        const latestSubscription = await User.findOne({ status: 'active', expireDate: { $exists: true } })
+                                           .sort({ expireDate: -1 })
+                                           .limit(1);
 
-exports.listQuestions = async (ctx) => {
-  if (!exports.checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
+        let latestExpireDate = 'N/A';
+        if (latestSubscription && latestSubscription.expireDate) {
+            latestExpireDate = formatDate(latestSubscription.expireDate, true);
+        }
 
-  const questions = await Question.find({ status: 'pending' }).sort({ createdAt: 1 });
+        let message = `📊 *Статистика Бота*\n\n` +
+                      `👥 Всего пользователей: *${totalUsers}*\n` +
+                      `✅ Активных подписок: *${activeUsers}*\n` +
+                      `⏳ Ожидают проверки оплаты: *${pendingPayments}*\n` +
+                      `❓ Неотвеченных вопросов: *${pendingQuestions}*\n` +
+                      `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
+                      `🗓 Самая поздняя подписка до: *${latestExpireDate}*`;
 
-  if (questions.length === 0) {
-    await ctx.reply('✅ Нет неотвеченных вопросов.');
-    return ctx.answerCbQuery();
-  }
+        // Отправляем сообщение с кнопкой "Обновить"
+        // Если это callbackQuery, то редактируем сообщение, иначе отправляем новое
+        if (ctx.callbackQuery) {
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+                    ]
+                }
+            });
+            await ctx.answerCbQuery('Статистика обновлена!');
+        } else {
+            await ctx.replyWithMarkdown(message, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+                    ]
+                }
+            });
+            await ctx.answerCbQuery(); // Обязательно для команд, чтобы убрать "загрузку"
+        }
 
-  for (const q of questions) {
-    const keyboard = Markup.inlineKeyboard([
-      Markup.button.callback('✍️ Ответить', `answer_${q.userId}`)
-    ]);
-    const user = await User.findOne({ userId: q.userId });
-    await ctx.replyWithMarkdown(
-      `❓ Новый вопрос от ${user ? user.firstName || user.username || 'Без имени' : 'Неизвестный'} (@${user?.username || 'нет'}):\n` +
-      `"${q.text}"\n` +
-      `ID пользователя: ${q.userId}\n` +
-      `Время: ${formatDate(q.createdAt)}`,
-      keyboard
-    );
-  }
-  await ctx.answerCbQuery();
+    } catch (error) {
+        console.error('Ошибка при получении статистики:', error);
+        if (ctx.callbackQuery) {
+             await ctx.editMessageText('⚠️ Произошла ошибка при обновлении статистики.');
+        } else {
+            await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
+        }
+        await ctx.answerCbQuery('Ошибка!');
+    }
 };
