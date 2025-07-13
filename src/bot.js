@@ -19,7 +19,7 @@ const {
 } = require('./controllers/userController'); 
 
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats, checkAdmin } = require('./controllers/adminController'); // Убедитесь, что stats и checkAdmin импортированы
+const { checkPayments, stats, checkAdmin, broadcastMessage, checkAdminMenu } = require('./controllers/adminController'); // ДОБАВЛЕН broadcastMessage и checkAdminMenu
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 
@@ -44,6 +44,7 @@ process.on('unhandledRejection', (err) => {
 process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
   // В более продакшен-готовом приложении здесь может быть отправка уведомления админу
+  // bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Uncaught Exception: ${err.message}`).catch(e => console.error("Error sending exception to admin:", e));
   await bot.stop();
   process.exit(1);
 });
@@ -143,6 +144,12 @@ bot.use(async (ctx, next) => {
       return;
     }
 
+    // Это важно: пропускаем middleware, если сообщение админа является командой
+    // Например, если админ ввел /broadcast, то это не должно обрабатываться как ответ
+    if (ctx.message?.text && ctx.message.text.startsWith('/')) {
+        return next();
+    }
+
     if (ctx.message) {
       console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
     }
@@ -188,27 +195,18 @@ bot.use(async (ctx, next) => {
 // --- Обработчики команд ---
 bot.start(handleStart);
 
-// Новый обработчик для текстовых сообщений: сначала проверяем, не ждем ли мы описание проблемы
-// Если не ждем, тогда это вопрос
-bot.on('text', async (ctx, next) => {
-    if (ctx.session?.awaitingVpnTroubleshoot) {
-        // Логика уже обработана в middleware выше, просто пропускаем
-        return; 
-    }
-    // Если это не команда и не ожидается описание проблемы, то это вопрос
-    if (!ctx.message.text.startsWith('/')) {
-        await handleQuestion(ctx);
-    } else {
-        return next(); // Пропустить, если это команда
-    }
-});
-
+// Общие команды
+bot.command('help', userController.help); // Предполагаю, что у вас есть help в userController
+bot.command('status', userController.status); // Предполагаю, что у вас есть status в userController
+bot.command('faq', userController.faq); // Предполагаю, что у вас есть faq в userController
+bot.command('contact', userController.contactAdmin); // Предполагаю, что у вас есть contactAdmin в userController
 
 // Админские команды
+bot.command('admin', checkAdminMenu); // Кнопки админа
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
-
+bot.command('broadcast', broadcastMessage); // ДОБАВЛЕНА КОМАНДА ДЛЯ РАССЫЛКИ
 
 // Обработка платежей (фото)
 bot.on('photo', handlePhoto);
@@ -221,8 +219,8 @@ bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
-bot.action('show_stats_admin', stats);
-bot.action('refresh_stats', stats); // НОВЫЙ ОБРАБОТЧИК: Кнопка "Обновить" для статистики
+bot.action('show_stats_admin', stats); // Используется в меню админа, если есть
+bot.action('refresh_stats', stats); // Кнопка "Обновить" для статистики
 
 bot.action(/answer_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
@@ -260,7 +258,7 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
 bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
-bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
+bot.action(/send_vpn_info_(\d+)/, requestVpnInfo); // Используется для отправки информации о VPN пользователю
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure); 
 
@@ -273,10 +271,32 @@ bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 // --- Напоминания ---
 setupReminders(bot);
 
+// Новый обработчик для текстовых сообщений: сначала проверяем, не ждем ли мы описание проблемы
+// Если не ждем, тогда это вопрос
+// Важно: этот обработчик должен быть ПОСЛЕ всех bot.command() и bot.on('photo')
+bot.on('text', async (ctx, next) => {
+    // Если сообщение начинается с '/', это команда, и она уже должна быть обработана bot.command()
+    if (ctx.message.text.startsWith('/')) {
+        return next(); // Пропускаем дальше, чтобы не дублировать обработку команд
+    }
+
+    // Логика для ожидания описания проблемы, если пользователь ввел текст
+    if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot) {
+        // Эта логика уже обрабатывается в middleware, просто убеждаемся, что не обрабатываем дважды
+        // Здесь мы могли бы просто return, если middleware уже всё сделала
+        // Но поскольку middleware только уведомила админа и сбросила сессию, 
+        // основной обработчик 'text' уже не должен ничего делать
+        return; 
+    }
+
+    // Если это не команда и не ожидается описание проблемы, то это вопрос пользователя
+    await handleQuestion(ctx);
+});
+
 
 // --- Запуск ---
 bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+  .then(() => console.log('🤖 Бот запущен (Q&A + Payments + Broadcast)!'))
   .catch(err => {
     console.error('🚨 Ошибка запуска:', err);
     process.exit(1);
