@@ -5,12 +5,12 @@ const { formatDate } = require('../utils/helpers');
 
 exports.handlePhoto = async (ctx) => {
   const { id, first_name, username } = ctx.from;
-  
+
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
     return ctx.reply('Вы в режиме админа, скриншоты не требуются');
   }
   const photo = ctx.message.photo.pop();
-  
+
   await User.findOneAndUpdate(
     { userId: id },
     {
@@ -45,12 +45,12 @@ exports.handleApprove = async (ctx) => {
 
   const user = await User.findOne({ userId });
 
-  let newExpireDate = new Date(); 
+  let newExpireDate = new Date();
 
   if (user && user.expireDate && user.expireDate > new Date()) {
-    newExpireDate = new Date(user.expireDate); 
+    newExpireDate = new Date(user.expireDate);
   }
-  
+
   newExpireDate.setMonth(newExpireDate.getMonth() + 1);
   newExpireDate.setHours(23, 59, 59, 999);
 
@@ -67,8 +67,8 @@ exports.handleApprove = async (ctx) => {
   );
 
   let message = `🎉 Платёж подтверждён!\n\n` +
-                `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n`;
-  
+    `Доступ к VPN активен до ${formatDate(newExpireDate, true)}\n\n`;
+
   let keyboard = Markup.inlineKeyboard([]);
 
   // Если это первая подписка (subscriptionCount === 1), показываем инструкцию и кнопку

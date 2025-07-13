@@ -28,7 +28,7 @@ class PaymentService {
 
     const user = await User.findOneAndUpdate(
       { userId },
-      { 
+      {
         status: 'active',
         expireDate,
         lastReminder: null // Сбрасываем напоминания
@@ -44,10 +44,10 @@ class PaymentService {
     return {
       user,
       message: `🎉 Подписка активирована до ${formatDate(expireDate)}!\n\n` +
-               `Данные для подключения:\n` +
-               `Сервер: ${vpnCredentials.server}\n` +
-               `Логин: ${vpnCredentials.login}\n` +
-               `Пароль: ${vpnCredentials.password}`
+        `Данные для подключения:\n` +
+        `Сервер: ${vpnCredentials.server}\n` +
+        `Логин: ${vpnCredentials.login}\n` +
+        `Пароль: ${vpnCredentials.password}`
     };
   }
 
@@ -102,8 +102,8 @@ class PaymentService {
    * Генерация случайного пароля
    */
   static generatePassword() {
-    return Math.random().toString(36).slice(-8) + 
-           Math.random().toString(36).slice(-8);
+    return Math.random().toString(36).slice(-8) +
+      Math.random().toString(36).slice(-8);
   }
 
   /**

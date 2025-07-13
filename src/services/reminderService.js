@@ -17,7 +17,7 @@ exports.setupReminders = (bot) => {
       // и которым напоминание не отправлялось сегодня (или вообще)
       const expiringUsers = await User.find({
         status: 'active',
-        expireDate: { 
+        expireDate: {
           $lte: new Date(now.getTime() + process.env.REMIND_DAYS * 86400000), // Дата истечения <= (сейчас + REMIND_DAYS дней)
           $gt: now                                                        // Дата истечения > (сейчас)
         },
@@ -32,7 +32,7 @@ exports.setupReminders = (bot) => {
       for (const user of expiringUsers) {
         try {
           const daysLeft = Math.ceil((user.expireDate - now) / 86400000);
-          
+
           await bot.telegram.sendMessage(
             user.userId,
             `⚠️ *Ваша подписка истекает через ${daysLeft} дней!*\n\n` +
@@ -40,7 +40,7 @@ exports.setupReminders = (bot) => {
             paymentDetails(user.userId, user.firstName || user.username), // Передаем данные пользователя
             { parse_mode: 'Markdown', disable_web_page_preview: true } // Добавил disable_web_page_preview
           );
-          
+
           await User.updateOne(
             { userId: user.userId },
             { lastReminder: now } // Обновляем время последнего напоминания
@@ -52,7 +52,7 @@ exports.setupReminders = (bot) => {
       }
 
       // 2. Напоминания о неотвеченных вопросах (для админа)
-      const pendingQuestions = await Question.countDocuments({ 
+      const pendingQuestions = await Question.countDocuments({
         status: 'pending',
         createdAt: { $gt: new Date(now.getTime() - 7 * 86400000) } // Только за последние 7 дней
       });
@@ -98,10 +98,10 @@ exports.setupReminders = (bot) => {
           );
           await User.updateOne(
             { userId: user.userId },
-            { 
+            {
               status: 'inactive', // Изменяем статус на неактивный
               lastReminder: now // Обновляем lastReminder, чтобы не отправлять это сообщение повторно каждый день
-            } 
+            }
           );
           console.log(`[Cron] Подписка пользователя ${user.userId} истекла, статус изменен на 'inactive'.`);
           // Здесь можно добавить логику для отключения VPN доступа через ваш VPN-сервер, если такая интеграция есть
@@ -119,21 +119,21 @@ exports.setupReminders = (bot) => {
   cron.schedule('0 */3 * * *', async () => {
     console.log('[Cron] Запуск задачи экстренных напоминаний о вопросах...');
     try {
-        const now = new Date();
-        const urgentQuestions = await Question.countDocuments({
-            status: 'pending',
-            createdAt: { $lt: new Date(now.getTime() - 86400000) } // Вопросы старше 24 часов
-        });
-        
-        if (urgentQuestions > 0) {
-            await bot.telegram.sendMessage(
-                process.env.ADMIN_ID,
-                `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
-            );
-            console.log(`[Cron] Отправлено экстренное напоминание админу о ${urgentQuestions} срочных вопросах.`);
-        }
+      const now = new Date();
+      const urgentQuestions = await Question.countDocuments({
+        status: 'pending',
+        createdAt: { $lt: new Date(now.getTime() - 86400000) } // Вопросы старше 24 часов
+      });
+
+      if (urgentQuestions > 0) {
+        await bot.telegram.sendMessage(
+          process.env.ADMIN_ID,
+          `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
+        );
+        console.log(`[Cron] Отправлено экстренное напоминание админу о ${urgentQuestions} срочных вопросах.`);
+      }
     } catch (err) {
-        console.error('[Cron] Ошибка в задаче экстренных напоминаний:', err);
+      console.error('[Cron] Ошибка в задаче экстренных напоминаний:', err);
     }
   });
 

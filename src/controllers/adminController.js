@@ -48,7 +48,7 @@ exports.stats = async (ctx) => {
       Question.aggregate([
         { $group: { _id: '$status', count: { $sum: 1 } } }
       ]),
-      User.find({ 
+      User.find({
         status: 'active',
         expireDate: { $lt: new Date(Date.now() + 7 * 86400000) }
       }).sort({ expireDate: 1 }).limit(5),
@@ -57,13 +57,13 @@ exports.stats = async (ctx) => {
 
     // Важно: если usersStats - это массив результатов aggregation, нужно его обработать
     const userStatusCounts = usersStats.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
+      acc[curr._id] = curr.count;
+      return acc;
     }, {});
 
     const questionStatusCounts = questionsStats.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
+      acc[curr._id] = curr.count;
+      return acc;
     }, {});
 
     const totalUsers = await User.countDocuments(); // Общее количество пользователей
@@ -74,12 +74,12 @@ exports.stats = async (ctx) => {
     const configuredUsers = await User.countDocuments({ vpnConfigured: true }); // Получаем количество из запроса
 
     let message = `📊 *Статистика бота*\n\n` +
-                  `👤 Всего пользователей: ${totalUsers}\n` +
-                  `🟢 Активных подписок: ${activeUsers}\n` +
-                  `⏳ Ожидающих платежей: ${pendingPayments}\n` +
-                  `❓ Всего вопросов: ${totalQuestions}\n` +
-                  `💬 Неотвеченных вопросов: ${pendingQuestions}\n` +
-                  `✅ Успешно настроили VPN: ${configuredUsers}\n\n`;
+      `👤 Всего пользователей: ${totalUsers}\n` +
+      `🟢 Активных подписок: ${activeUsers}\n` +
+      `⏳ Ожидающих платежей: ${pendingPayments}\n` +
+      `❓ Всего вопросов: ${totalQuestions}\n` +
+      `💬 Неотвеченных вопросов: ${pendingQuestions}\n` +
+      `✅ Успешно настроили VPN: ${configuredUsers}\n\n`;
 
     message += `🔔 *Ближайшие истечения:*\n`;
     if (expiringSoon.length > 0) {

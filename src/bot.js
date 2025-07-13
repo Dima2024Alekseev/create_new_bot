@@ -97,8 +97,8 @@ bot.use(async (ctx, next) => {
           'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже. Если у вас возникли проблемы:',
           Markup.inlineKeyboard([
             [
-              Markup.button.callback('✅ Успешно настроил', `vpn_configured_${targetUserId}`),
-              Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${targetUserId}`) // <-- НОВАЯ КНОПКА
+              Markup.button.callback('✅ Успешно настроил(а)', `vpn_configured_${targetUserId}`),
+              Markup.button.callback('❌ Не справился(ась)', `vpn_failed_${targetUserId}`) // <-- НОВАЯ КНОПКА
             ]
           ])
         );
@@ -116,7 +116,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
-      
+
       try {
         await ctx.telegram.sendMessage(
           targetUserId,
@@ -147,7 +147,7 @@ bot.use(async (ctx, next) => {
 
     let userName = user?.firstName || user?.username || 'Без имени';
     if (user?.username) {
-        userName = `${userName} (@${user.username})`;
+      userName = `${userName} (@${user.username})`;
     }
 
     // Уведомление администратора
@@ -164,9 +164,9 @@ bot.use(async (ctx, next) => {
         }
       }
     );
-    
+
     await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
-    
+
     // Сбрасываем состояние ожидания
     ctx.session.awaitingVpnTroubleshoot = null;
     return; // Прекращаем дальнейшую обработку
@@ -183,16 +183,16 @@ bot.start(handleStart);
 // Новый обработчик для текстовых сообщений: сначала проверяем, не ждем ли мы описание проблемы
 // Если не ждем, тогда это вопрос
 bot.on('text', async (ctx, next) => {
-    if (ctx.session?.awaitingVpnTroubleshoot) {
-        // Логика уже обработана в middleware выше, просто пропускаем
-        return; 
-    }
-    // Если это не команда и не ожидается описание проблемы, то это вопрос
-    if (!ctx.message.text.startsWith('/')) {
-        await handleQuestion(ctx);
-    } else {
-        return next(); // Пропустить, если это команда
-    }
+  if (ctx.session?.awaitingVpnTroubleshoot) {
+    // Логика уже обработана в middleware выше, просто пропускаем
+    return;
+  }
+  // Если это не команда и не ожидается описание проблемы, то это вопрос
+  if (!ctx.message.text.startsWith('/')) {
+    await handleQuestion(ctx);
+  } else {
+    return next(); // Пропустить, если это команда
+  }
 });
 
 
@@ -237,13 +237,13 @@ bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
 
 // НОВЫЙ ОБРАБОТЧИК: Админ отвечает на проблему с VPN
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-    if (!checkAdmin(ctx)) {
-      return ctx.answerCbQuery('🚫 Только для админа');
-    }
-    const targetUserId = parseInt(ctx.match[1]);
-    ctx.session.awaitingAnswerVpnIssueFor = targetUserId; // Новое состояние для админа
-    await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
-    await ctx.answerCbQuery();
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const targetUserId = parseInt(ctx.match[1]);
+  ctx.session.awaitingAnswerVpnIssueFor = targetUserId; // Новое состояние для админа
+  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+  await ctx.answerCbQuery();
 });
 
 

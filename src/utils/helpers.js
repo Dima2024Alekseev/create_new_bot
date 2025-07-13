@@ -1,6 +1,6 @@
 exports.paymentDetails = (userId, name = '') => {
   const price = process.env.VPN_PRICE || 132;
-  const comment = name 
+  const comment = name
     ? `VPN ${name} ${userId}`
     : `VPN ${userId}`;
 
@@ -16,10 +16,10 @@ exports.paymentDetails = (userId, name = '') => {
 exports.formatDate = (date, withTime = false) => {
   const options = {
     day: '2-digit',
-    month: '2-digit', 
+    month: '2-digit',
     year: 'numeric'
   };
-  
+
   if (withTime) {
     options.hour = '2-digit';
     options.minute = '2-digit';
@@ -33,6 +33,6 @@ exports.formatDuration = (ms) => {
   const days = Math.floor(ms / 86400000);
   const hours = Math.floor((ms % 86400000) / 3600000);
   const mins = Math.round((ms % 3600000) / 60000);
-  
+
   return `${days}д ${hours}ч ${mins}м`;
 };

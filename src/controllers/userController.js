@@ -5,7 +5,7 @@ const { Markup } = require('telegraf');
 
 exports.handleStart = async (ctx) => {
   const { id, first_name, username } = ctx.from;
-  
+
   // === ЛОГИКА ДЛЯ АДМИНА ===
   // Если пользователь является админом, показываем админ-панель с INLINE-клавиатурой
   if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
@@ -38,16 +38,16 @@ exports.handleStart = async (ctx) => {
 
   if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
-    
+
     message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
-        message += `\nОсталось: ${formatDuration(timeLeft)}.`;
+      message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
-        message += `\nСрок действия истёк.`;
+      message += `\nСрок действия истёк.`;
     }
-    
+
     keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
-    
+
     // Показываем кнопку "Получить файл и инструкцию" только если это первая подписка ИЛИ если он еще не подтвердил настройку
     // и если это активная подписка (чтобы не предлагать неактивным)
     if ((!user.subscriptionCount || user.subscriptionCount === 1) && !user.vpnConfigured) {
@@ -56,10 +56,10 @@ exports.handleStart = async (ctx) => {
 
   } else {
     message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-              `${paymentDetails(id, first_name)}\n\n` +
-              '_После оплаты отправьте скриншот чека_';
+      `${paymentDetails(id, first_name)}\n\n` +
+      '_После оплаты отправьте скриншот чека_';
   }
-  
+
   if (hasActiveOrPendingSubscription) {
     keyboardButtons.push(
       [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
@@ -73,7 +73,7 @@ exports.handleStart = async (ctx) => {
   // Для обычного пользователя продолжим использовать InlineKeyboard
   ctx.replyWithMarkdown(
     message,
-    { 
+    {
       disable_web_page_preview: true,
       reply_markup: {
         inline_keyboard: keyboardButtons
@@ -98,14 +98,14 @@ exports.checkSubscriptionStatus = async (ctx) => {
 
   if (user?.status === 'active' && user.expireDate) {
     const timeLeft = user.expireDate.getTime() - new Date().getTime();
-    
+
     let message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
     if (timeLeft > 0) {
       message += `\nОсталось: ${formatDuration(timeLeft)}.`;
     } else {
       message += `\nСрок действия истёк.`;
     }
-    
+
     await ctx.replyWithMarkdown(message);
   } else if (user?.status === 'pending') {
     await ctx.reply('⏳ Ваша заявка на оплату находится на проверке. Ожидайте подтверждения.');
