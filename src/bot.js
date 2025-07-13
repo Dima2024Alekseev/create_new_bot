@@ -5,6 +5,7 @@ const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const User = require('./models/User'); // Добавил импорт модели User для middleware
 
+// Импорт контроллеров
 const { 
   handleStart, 
   checkSubscriptionStatus, 
@@ -19,7 +20,8 @@ const {
 } = require('./controllers/userController'); 
 
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats, checkAdmin } = require('./controllers/adminController'); // Убедитесь, что stats и checkAdmin импортированы
+// Убедитесь, что checkAdminMenu здесь импортирована из adminController
+const { checkPayments, stats, checkAdmin, checkAdminMenu } = require('./controllers/adminController'); 
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 
@@ -31,32 +33,48 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
   }
 });
 
+// Использование локальной сессии
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
+// Подключение к MongoDB
 connectDB().catch(err => {
   console.error('❌ MongoDB connection failed:', err);
-  process.exit(1);
+  process.exit(1); // Выход из процесса при ошибке подключения к БД
 });
 
-process.on('unhandledRejection', (err) => {
-  console.error('⚠️ Unhandled Rejection:', err);
+// --- Глобальные обработчики ошибок для устойчивости бота ---
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Stack trace:', reason.stack); // Добавляем трассировку стека
+  // Можно добавить уведомление админу здесь, но часто это менее критично, чем Uncaught Exception
+  // bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Unhandled Promise Rejection: ${reason.message || reason}\n${reason.stack || 'No stack'}`).catch(e => console.error("Error sending notification:", e));
 });
+
 process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
-  // В более продакшен-готовом приложении здесь может быть отправка уведомления админу
-  await bot.stop();
+  console.error('Stack trace:', err.stack); // Добавляем трассировку стека
+  try {
+    // Попытка отправить сообщение админу о критической ошибке
+    await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
+  } catch (e) {
+    console.error("Failed to send uncaught exception to admin:", e);
+  }
+  // Остановка бота и выход из процесса
+  await bot.stop().catch(e => console.error("Error stopping bot on uncaught exception:", e));
   process.exit(1);
 });
 
 // --- Middleware для ответов АДМИНА, отправки инструкций и обработки проблем ---
 bot.use(async (ctx, next) => {
+  // Расширенное логирование состояния сессии для отладки
   console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
   console.log(`[Middleware Debug] awaitingAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
   console.log(`[Middleware Debug] awaitingVpnFileFor: ${ctx.session?.awaitingVpnFileFor}`);
   console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
   console.log(`[Middleware Debug] awaitingAnswerVpnIssueFor: ${ctx.session?.awaitingAnswerVpnIssueFor}`);
   console.log(`[Middleware Debug] awaitingVpnTroubleshoot: ${ctx.session?.awaitingVpnTroubleshoot}`);
-  console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`);
+  // Логируем тип полученного сообщения (текст, фото, видео и т.д.)
+  console.log(`[Middleware Debug] Тип сообщения: ${ctx.message ? Object.keys(ctx.message).join(', ') : 'No message object'}`);
 
   // Логика для АДМИНА
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
@@ -144,6 +162,7 @@ bot.use(async (ctx, next) => {
     }
 
     if (ctx.message) {
+      // Это сообщение админа, которое не попало ни в одну из веток обработки ожиданий
       console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
     }
   }
@@ -181,21 +200,31 @@ bot.use(async (ctx, next) => {
     return; 
   }
 
-  return next(); 
+  return next(); // Передаем управление следующим middleware/обработчикам
 });
 
 
 // --- Обработчики команд ---
-bot.start(handleStart);
+
+// Модифицированная команда /start для разделения логики пользователя и админа
+bot.start(async (ctx) => {
+    if (checkAdmin(ctx)) {
+        await checkAdminMenu(ctx); // Если админ, показываем админ-меню
+    } else {
+        await handleStart(ctx); // Если обычный пользователь, вызываем handleStart из userController
+    }
+});
 
 // Новый обработчик для текстовых сообщений: сначала проверяем, не ждем ли мы описание проблемы
 // Если не ждем, тогда это вопрос
 bot.on('text', async (ctx, next) => {
-    if (ctx.session?.awaitingVpnTroubleshoot) {
-        // Логика уже обработана в middleware выше, просто пропускаем
-        return; 
+    // Если сообщение уже было обработано в middleware (например, как админский ответ или описание проблемы пользователя),
+    // или это команда, то не обрабатываем его как вопрос.
+    if (ctx.session?.awaitingVpnTroubleshoot || ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+        // Логика уже обработана в middleware выше или это админ - пропускаем
+        return next(); 
     }
-    // Если это не команда и не ожидается описание проблемы, то это вопрос
+    // Если это не команда (начинается с '/') и не было обработано выше, то это вопрос
     if (!ctx.message.text.startsWith('/')) {
         await handleQuestion(ctx);
     } else {
@@ -205,6 +234,7 @@ bot.on('text', async (ctx, next) => {
 
 
 // Админские команды
+bot.command('admin', checkAdminMenu); // Явная команда для админ-панели
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
@@ -266,8 +296,8 @@ bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 
 // --- Новые обработчики для отмены подписки ---
 bot.action('cancel_subscription_confirm', promptCancelSubscription); 
-bot.action('cancel_subscription_final', cancelSubscriptionFinal);   
-bot.action('cancel_subscription_abort', cancelSubscriptionAbort);   
+bot.action('cancel_subscription_final', cancelSubscriptionFinal);   
+bot.action('cancel_subscription_abort', cancelSubscriptionAbort);   
 
 
 // --- Напоминания ---
