@@ -1,13 +1,25 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
-const { Telegraf, session, Markup } = require('telegraf'); // Добавил Markup
+const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const User = require('./models/User'); // Добавил импорт модели User для middleware
 
-const { handleStart, checkSubscriptionStatus, extendSubscription, promptForQuestion, requestVpnInfo, handleVpnConfigured, promptVpnFailure } = require('./controllers/userController'); // Добавил promptVpnFailure
+const { 
+  handleStart, 
+  checkSubscriptionStatus, 
+  extendSubscription, 
+  promptForQuestion, 
+  requestVpnInfo, 
+  handleVpnConfigured, 
+  promptVpnFailure, // Добавил promptVpnFailure
+  promptCancelSubscription, // Добавил promptCancelSubscription
+  cancelSubscriptionFinal, // Добавил cancelSubscriptionFinal
+  cancelSubscriptionAbort // Добавил cancelSubscriptionAbort
+} = require('./controllers/userController'); 
+
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-const { checkPayments, stats } = require('./controllers/adminController');
+const { checkPayments, stats } = require('./controllers/adminController'); 
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./controllers/adminController');
@@ -37,14 +49,14 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// ===== Middleware для ответов АДМИНА, отправки инструкций и обработки проблем =====
+// --- Middleware для ответов АДМИНА, отправки инструкций и обработки проблем ---
 bot.use(async (ctx, next) => {
   console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
   console.log(`[Middleware Debug] awaitingAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
   console.log(`[Middleware Debug] awaitingVpnFileFor: ${ctx.session?.awaitingVpnFileFor}`);
   console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
-  console.log(`[Middleware Debug] awaitingAnswerVpnIssueFor: ${ctx.session?.awaitingAnswerVpnIssueFor}`); // Новое состояние
-  console.log(`[Middleware Debug] awaitingVpnTroubleshoot: ${ctx.session?.awaitingVpnTroubleshoot}`); // Новое состояние
+  console.log(`[Middleware Debug] awaitingAnswerVpnIssueFor: ${ctx.session?.awaitingAnswerVpnIssueFor}`);
+  console.log(`[Middleware Debug] awaitingVpnTroubleshoot: ${ctx.session?.awaitingVpnTroubleshoot}`);
   console.log(`[Middleware Debug] Тип сообщения: ${Object.keys(ctx.message || {})}`);
 
   // Логика для АДМИНА
@@ -52,9 +64,7 @@ bot.use(async (ctx, next) => {
     // 1. Обработка ответа на обычный вопрос
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
-      // ctx.session.awaitingAnswerFor передается как аргумент в handleAnswer
-      // handleAnswer сам сбрасывает ctx.session.awaitingAnswerFor
-      await handleAnswer(ctx); // handleAnswer теперь берет userId из ctx.session.awaitingAnswerFor
+      await handleAnswer(ctx); 
       return;
     }
 
@@ -97,8 +107,8 @@ bot.use(async (ctx, next) => {
           'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже. Если у вас возникли проблемы:',
           Markup.inlineKeyboard([
             [
-              Markup.button.callback('✅ Успешно настроил(а)', `vpn_configured_${targetUserId}`),
-              Markup.button.callback('❌ Не справился(ась)', `vpn_failed_${targetUserId}`) // <-- НОВАЯ КНОПКА
+              Markup.button.callback('✅ Успешно настроил', `vpn_configured_${targetUserId}`),
+              Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${targetUserId}`)
             ]
           ])
         );
@@ -107,7 +117,7 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
       } finally {
-        ctx.session.awaitingVpnVideoFor = null; // Сбрасываем ожидание видео
+        ctx.session.awaitingVpnVideoFor = null; 
       }
       return;
     }
@@ -116,7 +126,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
-
+      
       try {
         await ctx.telegram.sendMessage(
           targetUserId,
@@ -129,7 +139,7 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
       } finally {
-        ctx.session.awaitingAnswerVpnIssueFor = null; // Сбрасываем состояние
+        ctx.session.awaitingAnswerVpnIssueFor = null; 
       }
       return;
     }
@@ -143,11 +153,11 @@ bot.use(async (ctx, next) => {
   if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
-    const user = await User.findOne({ userId }); // Находим пользователя для имени
+    const user = await User.findOne({ userId }); 
 
     let userName = user?.firstName || user?.username || 'Без имени';
     if (user?.username) {
-      userName = `${userName} (@${user.username})`;
+        userName = `${userName} (@${user.username})`;
     }
 
     // Уведомление администратора
@@ -159,40 +169,39 @@ bot.use(async (ctx, next) => {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '➡️ Ответить пользователю', callback_data: `answer_vpn_issue_${userId}` }] // Кнопка для админа, чтобы ответить
+            [{ text: '➡️ Ответить пользователю', callback_data: `answer_vpn_issue_${userId}` }]
           ]
         }
       }
     );
-
+    
     await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
-
+    
     // Сбрасываем состояние ожидания
     ctx.session.awaitingVpnTroubleshoot = null;
-    return; // Прекращаем дальнейшую обработку
+    return; 
   }
 
-  return next(); // Передаем управление следующему middleware или обработчику
+  return next(); 
 });
 
 
-// ===== Обработчики команд =====
+// --- Обработчики команд ---
 bot.start(handleStart);
-// bot.hears(/^[^\/].*/, handleQuestion); // Эту строку закомментируем или удалим, т.к. текст теперь может быть описанием проблемы
 
 // Новый обработчик для текстовых сообщений: сначала проверяем, не ждем ли мы описание проблемы
 // Если не ждем, тогда это вопрос
 bot.on('text', async (ctx, next) => {
-  if (ctx.session?.awaitingVpnTroubleshoot) {
-    // Логика уже обработана в middleware выше, просто пропускаем
-    return;
-  }
-  // Если это не команда и не ожидается описание проблемы, то это вопрос
-  if (!ctx.message.text.startsWith('/')) {
-    await handleQuestion(ctx);
-  } else {
-    return next(); // Пропустить, если это команда
-  }
+    if (ctx.session?.awaitingVpnTroubleshoot) {
+        // Логика уже обработана в middleware выше, просто пропускаем
+        return; 
+    }
+    // Если это не команда и не ожидается описание проблемы, то это вопрос
+    if (!ctx.message.text.startsWith('/')) {
+        await handleQuestion(ctx);
+    } else {
+        return next(); // Пропустить, если это команда
+    }
 });
 
 
@@ -206,7 +215,7 @@ bot.command('questions', listQuestions);
 bot.on('photo', handlePhoto);
 
 
-// ===== Обработчики кнопок (callback_data) =====
+// --- Обработчики кнопок (callback_data) ---
 
 // Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
@@ -230,20 +239,20 @@ bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
   }
   const targetUserId = ctx.match[1];
   ctx.session.awaitingVpnFileFor = targetUserId;
-  ctx.session.awaitingVpnVideoFor = null; // Сбросим, если было установлено
+  ctx.session.awaitingVpnVideoFor = null; 
   await ctx.reply(`Загрузите *файл* конфигурации (например, .ovpn) для пользователя ${targetUserId}:`);
   await ctx.answerCbQuery();
 });
 
 // НОВЫЙ ОБРАБОТЧИК: Админ отвечает на проблему с VPN
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  const targetUserId = parseInt(ctx.match[1]);
-  ctx.session.awaitingAnswerVpnIssueFor = targetUserId; // Новое состояние для админа
-  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
-  await ctx.answerCbQuery();
+    if (!checkAdmin(ctx)) {
+      return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    const targetUserId = parseInt(ctx.match[1]);
+    ctx.session.awaitingAnswerVpnIssueFor = targetUserId; 
+    await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+    await ctx.answerCbQuery();
 });
 
 
@@ -253,14 +262,19 @@ bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
-bot.action(/vpn_failed_(\d+)/, promptVpnFailure); // <-- НОВЫЙ ОБРАБОТЧИК ДЛЯ КНОПКИ "Не справился"
+bot.action(/vpn_failed_(\d+)/, promptVpnFailure); 
+
+// --- Новые обработчики для отмены подписки ---
+bot.action('cancel_subscription_confirm', promptCancelSubscription); 
+bot.action('cancel_subscription_final', cancelSubscriptionFinal);   
+bot.action('cancel_subscription_abort', cancelSubscriptionAbort);   
 
 
-// ===== Напоминания =====
+// --- Напоминания ---
 setupReminders(bot);
 
 
-// ===== Запуск =====
+// --- Запуск ---
 bot.launch()
   .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
   .catch(err => {
