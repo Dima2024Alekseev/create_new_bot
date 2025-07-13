@@ -13,23 +13,6 @@ exports.checkAdmin = (ctx) => {
 };
 
 /**
- * Отображает основное меню администратора.
- * @param {object} ctx - Объект контекста Telegraf.
- */
-exports.checkAdminMenu = async (ctx) => {
-    if (!exports.checkAdmin(ctx)) {
-        return ctx.reply('🚫 Эта команда доступна только администратору.');
-    }
-    await ctx.reply('👋 Привет, Админ! Выберите действие:', Markup.inlineKeyboard([
-        [Markup.button.callback('Проверить заявки на оплату', 'check_payments_admin')],
-        [Markup.button.callback('Посмотреть статистику', 'refresh_stats')],
-        // [Markup.button.callback('Ответить на вопросы', 'answer_questions_admin')], // Если есть такая функция
-        // [Markup.button.callback('Управление VPN файлами', 'manage_vpn_files')], // Если будет добавлено
-        // [Markup.button.callback('Сделать рассылку', 'start_broadcast')] // Если будет реализована через кнопку
-    ]));
-};
-
-/**
  * Обрабатывает запрос на проверку ожидающих платежей.
  * Администратор получает информацию о заявках с скриншотами.
  * Если скриншота нет, админ получает текстовое уведомление.
@@ -58,13 +41,13 @@ exports.checkPayments = async (ctx) => {
                           `ID: ${user.userId}\n` +
                           `Имя: ${user.firstName || 'Не указано'}\n` +
                           `Username: ${user.username ? `@${user.username}` : 'Не указан'}\n` +
-                          `Дата подачи: ${user.paymentPhotoDate ? formatDate(user.paymentPhotoDate) : 'Не указана'}`; // Используем user.paymentPhotoDate
+                          `Дата подачи: ${user.paymentPhotoDate ? formatDate(user.paymentPhotoDate) : 'Не указана'}`; // ИЗМЕНЕНО: user.paymentPhotoDate
             
             // Если ID скриншота присутствует, отправляем фото
-            if (user.paymentPhotoId) { // Используем user.paymentPhotoId
+            if (user.paymentPhotoId) { // ИЗМЕНЕНО: user.paymentPhotoId
                 await ctx.telegram.sendPhoto(
                     ctx.chat.id, 
-                    user.paymentPhotoId, // Используем user.paymentPhotoId
+                    user.paymentPhotoId, // ИЗМЕНЕНО: user.paymentPhotoId
                     {
                         caption: message,
                         parse_mode: 'Markdown',
@@ -165,65 +148,5 @@ exports.stats = async (ctx) => {
         } else {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
         }
-    }
-};
-
-/**
- * Отправляет массовое сообщение всем пользователям бота.
- * @param {object} ctx - Объект контекста Telegraf.
- */
-exports.broadcastMessage = async (ctx) => {
-    // Проверка прав администратора
-    if (!exports.checkAdmin(ctx)) {
-        return ctx.reply('🚫 Эта команда доступна только администратору.');
-    }
-
-    // Текст сообщения для рассылки
-    // Берем все, что идет после команды /broadcast
-    const messageText = ctx.message.text.split(' ').slice(1).join(' '); 
-
-    if (!messageText) {
-        return ctx.reply('Пожалуйста, укажите текст для рассылки. Пример: `/broadcast Привет всем пользователям!`');
-    }
-
-    let sentCount = 0;
-    let blockedCount = 0;
-    let errorCount = 0;
-
-    try {
-        const allUsers = await User.find({}); // Получаем всех пользователей из базы данных
-
-        await ctx.reply(`Начинаю рассылку сообщения для ${allUsers.length} пользователей...`);
-
-        for (const user of allUsers) {
-            try {
-                // Отправляем сообщение каждому пользователю
-                await ctx.telegram.sendMessage(user.userId, messageText, { parse_mode: 'Markdown' });
-                sentCount++;
-                // Небольшая задержка, чтобы избежать ограничений Telegram API
-                await new Promise(resolve => setTimeout(resolve, 50)); 
-            } catch (userError) {
-                // Обработка ошибок для каждого пользователя
-                console.error(`Ошибка при отправке сообщения пользователю ${user.userId}:`, userError.message);
-                if (userError.message.includes('bot was blocked by the user')) {
-                    blockedCount++;
-                    // Опционально: можно обновить статус пользователя в БД на 'blocked'
-                    // await User.updateOne({ userId: user.userId }, { status: 'blocked' });
-                } else {
-                    errorCount++;
-                }
-            }
-        }
-
-        await ctx.reply(
-            `✅ Рассылка завершена!\n` +
-            `Отправлено сообщений: *${sentCount}*\n` +
-            `Пользователей заблокировали бота: *${blockedCount}*\n` +
-            `Другие ошибки отправки: *${errorCount}*`
-        );
-
-    } catch (error) {
-        console.error('Глобальная ошибка при выполнении рассылки:', error);
-        await ctx.reply('⚠️ Произошла ошибка при выполнении рассылки. Проверьте логи сервера.');
     }
 };
