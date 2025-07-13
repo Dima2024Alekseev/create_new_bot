@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { formatDate } = require('../utils/helpers');
-const { Markup } = require('telegraf'); // Убедитесь, что Markup импортирован
+const { Markup } = require('telegraf');
 
 exports.checkAdmin = (ctx) => {
     return ctx.from && ctx.from.id === parseInt(process.env.ADMIN_ID);
@@ -17,7 +17,7 @@ exports.checkPayments = async (ctx) => {
 
         if (pendingUsers.length === 0) {
             await ctx.reply('✅ Нет ожидающих платежей для проверки.');
-            return ctx.answerCbQuery();
+            return ctx.answerCbQuery(); // Здесь answerCbQuery уместен, т.к. это часто вызывается по кнопке
         }
 
         for (const user of pendingUsers) {
@@ -44,17 +44,23 @@ exports.checkPayments = async (ctx) => {
                 }
             );
         }
-        await ctx.answerCbQuery();
+        await ctx.answerCbQuery(); // И здесь, если вызов идет по кнопке
     } catch (error) {
         console.error('Ошибка при проверке платежей:', error);
         await ctx.reply('⚠️ Произошла ошибка при проверке платежей.');
-        await ctx.answerCbQuery('Ошибка!');
+        if (ctx.callbackQuery) { // Только если это callbackQuery, отвечаем на него
+            await ctx.answerCbQuery('Ошибка!');
+        }
     }
 };
 
 exports.stats = async (ctx) => {
     if (!exports.checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        // Если это callbackQuery, отвечаем на него, иначе просто завершаем
+        if (ctx.callbackQuery) {
+            return ctx.answerCbQuery('🚫 Только для админа');
+        }
+        return; // Если это не callbackQuery и не админ, просто ничего не делаем
     }
 
     try {
@@ -84,9 +90,8 @@ exports.stats = async (ctx) => {
                       `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
                       `🗓 Самая поздняя подписка до: *${latestExpireDate}*`;
 
-        // Отправляем сообщение с кнопкой "Обновить"
-        // Если это callbackQuery, то редактируем сообщение, иначе отправляем новое
         if (ctx.callbackQuery) {
+            // Если это нажатие на кнопку (callbackQuery), редактируем предыдущее сообщение
             await ctx.editMessageText(message, {
                 parse_mode: 'Markdown',
                 reply_markup: {
@@ -95,8 +100,9 @@ exports.stats = async (ctx) => {
                     ]
                 }
             });
-            await ctx.answerCbQuery('Статистика обновлена!');
+            await ctx.answerCbQuery('Статистика обновлена!'); // Отвечаем на callback, чтобы убрать загрузку
         } else {
+            // Если это команда (message), отправляем новое сообщение
             await ctx.replyWithMarkdown(message, {
                 reply_markup: {
                     inline_keyboard: [
@@ -104,16 +110,16 @@ exports.stats = async (ctx) => {
                     ]
                 }
             });
-            await ctx.answerCbQuery(); // Обязательно для команд, чтобы убрать "загрузку"
+            // НЕ вызываем answerCbQuery() здесь, потому что это не callbackQuery
         }
 
     } catch (error) {
         console.error('Ошибка при получении статистики:', error);
         if (ctx.callbackQuery) {
              await ctx.editMessageText('⚠️ Произошла ошибка при обновлении статистики.');
+             await ctx.answerCbQuery('Ошибка!'); // Отвечаем на callback с ошибкой
         } else {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
         }
-        await ctx.answerCbQuery('Ошибка!');
     }
 };
