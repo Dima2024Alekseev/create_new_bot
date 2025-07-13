@@ -17,7 +17,7 @@ exports.checkPayments = async (ctx) => {
 
         if (pendingUsers.length === 0) {
             await ctx.reply('✅ Нет ожидающих платежей для проверки.');
-            return ctx.answerCbQuery(); // Здесь answerCbQuery уместен, т.к. это часто вызывается по кнопке
+            return ctx.answerCbQuery(); 
         }
 
         for (const user of pendingUsers) {
@@ -28,7 +28,7 @@ exports.checkPayments = async (ctx) => {
                           `Дата подачи: ${formatDate(user.paymentScreenshotDate)}`;
 
             await ctx.telegram.sendPhoto(
-                ctx.chat.id, // Отправляем фото в чат админа
+                ctx.chat.id, 
                 user.paymentScreenshotId,
                 {
                     caption: message,
@@ -44,11 +44,10 @@ exports.checkPayments = async (ctx) => {
                 }
             );
         }
-        await ctx.answerCbQuery(); // И здесь, если вызов идет по кнопке
+        await ctx.answerCbQuery(); 
     } catch (error) {
         console.error('Ошибка при проверке платежей:', error);
-        await ctx.reply('⚠️ Произошла ошибка при проверке платежей.');
-        if (ctx.callbackQuery) { // Только если это callbackQuery, отвечаем на него
+        if (ctx.callbackQuery) {
             await ctx.answerCbQuery('Ошибка!');
         }
     }
@@ -56,11 +55,10 @@ exports.checkPayments = async (ctx) => {
 
 exports.stats = async (ctx) => {
     if (!exports.checkAdmin(ctx)) {
-        // Если это callbackQuery, отвечаем на него, иначе просто завершаем
         if (ctx.callbackQuery) {
             return ctx.answerCbQuery('🚫 Только для админа');
         }
-        return; // Если это не callbackQuery и не админ, просто ничего не делаем
+        return; 
     }
 
     try {
@@ -72,7 +70,6 @@ exports.stats = async (ctx) => {
             createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
         });
 
-        // Находим пользователя с самой поздней датой истечения подписки
         const latestSubscription = await User.findOne({ status: 'active', expireDate: { $exists: true } })
                                            .sort({ expireDate: -1 })
                                            .limit(1);
@@ -88,36 +85,31 @@ exports.stats = async (ctx) => {
                       `⏳ Ожидают проверки оплаты: *${pendingPayments}*\n` +
                       `❓ Неотвеченных вопросов: *${pendingQuestions}*\n` +
                       `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
-                      `🗓 Самая поздняя подписка до: *${latestExpireDate}*`;
+                      `🗓 Самая поздняя подписка до: *${latestExpireDate}*\n` +
+                      `_Обновлено: ${new Date().toLocaleTimeString('ru-RU')}_`; // ДОБАВЛЕНО: метка времени для уникальности
 
+        // Всегда отправляем новое сообщение
+        await ctx.replyWithMarkdown(message, {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+                ]
+            }
+        });
+        
+        // Отвечаем на callbackQuery, если это было нажатие кнопки
         if (ctx.callbackQuery) {
-            // Если это нажатие на кнопку (callbackQuery), редактируем предыдущее сообщение
-            await ctx.editMessageText(message, {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
-                    ]
-                }
-            });
-            await ctx.answerCbQuery('Статистика обновлена!'); // Отвечаем на callback, чтобы убрать загрузку
+            await ctx.answerCbQuery('Статистика обновлена!'); 
         } else {
-            // Если это команда (message), отправляем новое сообщение
-            await ctx.replyWithMarkdown(message, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
-                    ]
-                }
-            });
-            // НЕ вызываем answerCbQuery() здесь, потому что это не callbackQuery
+            // Для команды /stats не нужно answerCbQuery
+            // await ctx.answerCbQuery(); // Эту строку удалили ранее
         }
 
     } catch (error) {
         console.error('Ошибка при получении статистики:', error);
         if (ctx.callbackQuery) {
-             await ctx.editMessageText('⚠️ Произошла ошибка при обновлении статистики.');
-             await ctx.answerCbQuery('Ошибка!'); // Отвечаем на callback с ошибкой
+             await ctx.reply('⚠️ Произошла ошибка при обновлении статистики.'); // Отправляем новое сообщение с ошибкой
+             await ctx.answerCbQuery('Ошибка!');
         } else {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
         }
