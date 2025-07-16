@@ -1,232 +1,314 @@
 const User = require('../models/User');
-const { paymentDetails, formatDate, formatDuration } = require('../utils/helpers');
-const { checkAdmin } = require('./adminController');
 const { Markup } = require('telegraf');
+const { formatDate, paymentDetails } = require('../utils/helpers');
+const wgService = require('../services/wireguardService'); // НОВОЕ: Импорт wgService
+const { escapeMarkdown } = require('../utils/helpers'); // Для экранирования в сообщениях админу
 
+// ... (Остальные импорты и экспорты не меняются) ...
+
+/**
+ * Обрабатывает команду /start.
+ * Приветствует пользователя и предлагает опции в зависимости от статуса подписки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.handleStart = async (ctx) => {
-  const { id, first_name, username } = ctx.from;
-  
-  // === ЛОГИКА ДЛЯ АДМИНА ===
-  // Если пользователь является админом, показываем админ-панель с INLINE-клавиатурой
-  if (id === parseInt(process.env.ADMIN_ID) && checkAdmin(ctx)) {
-    return ctx.replyWithMarkdown(
-      '👋 *Админ-панель*\n\n',
-      {
-        reply_markup: { // Используем InlineKeyboardMarkup
-          inline_keyboard: [
-            [{ text: 'Проверить заявки', callback_data: 'check_payments_admin' }],
-            [{ text: 'Статистика', callback_data: 'show_stats_admin' }],
-            [{ text: 'Все вопросы', callback_data: 'list_questions' }]
-          ]
+    const { id, first_name, username } = ctx.from;
+
+    try {
+        const user = await User.findOneAndUpdate(
+            { userId: id },
+            { 
+                userId: id,
+                username: username || null,
+                firstName: first_name || null
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        // Проверяем, активна ли подписка и не истекла ли она
+        const hasActiveSubscription = user.status === 'active' && user.expireDate && user.expireDate > new Date();
+
+        let welcomeMessage = `👋 Привет, *${escapeMarkdown(first_name || username || 'пользователь')}*! Я бот для управления VPN.\n\n`;
+        let keyboard;
+
+        if (hasActiveSubscription) {
+            welcomeMessage += `🗓 Ваша подписка активна до *${formatDate(user.expireDate, true)}*.\n\n`;
+            keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('🗓 Проверить статус', 'check_subscription')],
+                [Markup.button.callback('➕ Продлить подписку', 'extend_subscription')],
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ]);
+        } else {
+            welcomeMessage += `Вы ещё не оформили подписку или она истекла. \n\n` +
+                              `Подключитесь к VPN за *${process.env.VPN_PRICE} руб.* в месяц.\n\n` +
+                              paymentDetails(id, first_name || username); // Передача имени для комментария
+
+            keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('➕ Оформить подписку', 'extend_subscription')],
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ]);
         }
-      }
-    );
-  }
 
-  // === ЛОГИКА ДЛЯ ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ ===
-  const user = await User.findOne({ userId: id });
-
-  let message = '';
-  let keyboardButtons = [];
-
-  const hasActiveOrPendingSubscription = user?.status === 'active' || user?.status === 'pending';
-
-  if (user?.status === 'active' && user.expireDate) {
-    const timeLeft = user.expireDate.getTime() - new Date().getTime();
-    
-    message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
-    if (timeLeft > 0) {
-        message += `\nОсталось: ${formatDuration(timeLeft)}.`;
-    } else {
-        message += `\nСрок действия истёк.`;
+        await ctx.replyWithMarkdown(welcomeMessage, keyboard);
+    } catch (error) {
+        console.error('Ошибка в handleStart:', error);
+        await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
     }
-    
-    keyboardButtons.push([{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }]);
-    
-    // Показываем кнопку "Получить файл и инструкцию" только если это первая подписка ИЛИ если он еще не подтвердил настройку
-    // и если это активная подписка (чтобы не предлагать неактивным)
-    if ((!user.subscriptionCount || user.subscriptionCount === 1) && !user.vpnConfigured) {
-      keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${id}` }]);
-    }
-    
-    // --- НОВАЯ КНОПКА ДЛЯ АКТИВНЫХ ПОЛЬЗОВАТЕЛЕЙ ---
-    keyboardButtons.push([{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }]); 
-    // ----------------------------------------------
-
-  } else {
-    message = `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-              `${paymentDetails(id, first_name)}\n\n` +
-              '_После оплаты отправьте скриншот чека_';
-  }
-  
-  if (hasActiveOrPendingSubscription) {
-    keyboardButtons.push(
-      [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
-    );
-  }
-
-  keyboardButtons.push(
-    [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-  );
-
-  // Для обычного пользователя продолжим использовать InlineKeyboard
-  ctx.replyWithMarkdown(
-    message,
-    { 
-      disable_web_page_preview: true,
-      reply_markup: {
-        inline_keyboard: keyboardButtons
-      }
-    }
-  );
 };
 
+/**
+ * Проверяет и отображает статус подписки пользователя.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.checkSubscriptionStatus = async (ctx) => {
-  const { id, first_name } = ctx.from;
-  const user = await User.findOne({ userId: id });
+    const { id, first_name, username } = ctx.from;
 
-  if (!user || (user.status !== 'active' && user.status !== 'pending')) {
-    await ctx.replyWithMarkdown(
-      `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-      `${paymentDetails(id, first_name)}\n\n` +
-      '_После оплаты отправьте скриншот чека_',
-      { disable_web_page_preview: true }
-    );
-    return ctx.answerCbQuery();
-  }
+    try {
+        const user = await User.findOne({ userId: id });
 
-  if (user?.status === 'active' && user.expireDate) {
-    const timeLeft = user.expireDate.getTime() - new Date().getTime();
-    
-    let message = `✅ *Ваша подписка активна до ${formatDate(user.expireDate, true)}*`;
-    if (timeLeft > 0) {
-      message += `\nОсталось: ${formatDuration(timeLeft)}.`;
+        if (!user) {
+            return ctx.reply('ℹ️ Мы не нашли информации о вашей подписке. Возможно, вы новый пользователь. Нажмите /start.');
+        }
+
+        let message = `*Ваш статус подписки:*\n\n`;
+        let keyboard;
+
+        const hasActiveSubscription = user.status === 'active' && user.expireDate && user.expireDate > new Date();
+        
+        if (hasActiveSubscription) {
+            message += `✅ *Активна*\n`;
+            message += `Срок действия до: *${formatDate(user.expireDate, true)}*\n\n`;
+            message += `Продлите VPN за *${process.env.VPN_PRICE} руб.* в месяц.\n\n`;
+            
+            keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('➕ Продлить подписку', 'extend_subscription')],
+                [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${id}`)],
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ]);
+
+            // Если подписка активна, но пользователь еще не подтвердил настройку
+            if (!user.vpnConfigured) {
+                keyboard.reply_markup.inline_keyboard.push(
+                    [Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${id}`)]
+                );
+            }
+            
+        } else if (user.status === 'pending') {
+            message += `⏳ *Ожидает подтверждения оплаты*\n`;
+            message += `Мы получили ваш скриншот и ожидаем подтверждения администратором. Это может занять некоторое время.`;
+            keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ]);
+        } else {
+            message += `🚫 *Неактивна* или *Истекла*\n`;
+            if (user.expireDate && user.expireDate <= new Date()) {
+                message += `Срок действия истёк: *${formatDate(user.expireDate, true)}*\n\n`;
+            }
+            message += `Подключитесь к VPN за *${process.env.VPN_PRICE} руб.* в месяц.\n\n` +
+                       paymentDetails(id, first_name || username); // Передача имени для комментария
+            keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('➕ Оформить подписку', 'extend_subscription')],
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ]);
+        }
+
+        await ctx.reply(message, { parse_mode: 'Markdown', ...keyboard, disable_web_page_preview: true });
+        await ctx.answerCbQuery();
+    } catch (error) {
+        console.error('Ошибка в checkSubscriptionStatus:', error);
+        await ctx.reply('⚠️ Произошла ошибка при проверке статуса подписки. Пожалуйста, попробуйте позже.');
+        await ctx.answerCbQuery('Ошибка');
+    }
+};
+
+/**
+ * Предлагает пользователю оформить или продлить подписку.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.extendSubscription = async (ctx) => {
+    const { id, first_name, username } = ctx.from;
+    const user = await User.findOne({ userId: id });
+
+    let message;
+    let keyboard;
+
+    if (user && user.status === 'pending') {
+        message = `⏳ *Вы уже отправили скриншот оплаты и ожидаете подтверждения администратором.* Пожалуйста, дождитесь проверки.`;
+        keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback('🗓 Проверить статус', 'check_subscription')]
+        ]);
     } else {
-      message += `\nСрок действия истёк.`;
+        message = `Для оформления/продления подписки на VPN:\n\n` +
+                  `1. Отправьте *${process.env.VPN_PRICE} руб.* на указанные реквизиты.\n` +
+                  `2. *ОБЯЗАТЕЛЬНО* укажите комментарий к платежу.\n` +
+                  `3. После оплаты пришлите *скриншот* чека в этот чат.\n\n` +
+                  paymentDetails(id, first_name || username);
+        keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+        ]);
     }
     
-    await ctx.replyWithMarkdown(message, {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }] // Добавляем кнопку здесь
-            ]
-        }
-    });
-  } else if (user?.status === 'pending') {
-    await ctx.reply('⏳ Ваша заявка на оплату находится на проверке. Ожидайте подтверждения.');
-  } else if (user?.status === 'rejected') {
-    await ctx.reply('❌ Ваша последняя заявка на оплату была отклонена. Пожалуйста, отправьте новый скриншот.');
-  } else {
-    // Эта ветка, по идее, не должна быть достигнута благодаря первой проверке, но оставлю на всякий случай.
-    await ctx.replyWithMarkdown(
-      `Вы пока не активировали подписку. VPN подписка: *${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-      `${paymentDetails(id, first_name)}\n\n` +
-      '_После оплаты отправьте скриншот чека_',
-      { disable_web_page_preview: true }
-    );
-  }
-  await ctx.answerCbQuery();
+    await ctx.reply(message, { parse_mode: 'Markdown', ...keyboard, disable_web_page_preview: true });
+    await ctx.answerCbQuery();
 };
 
-exports.extendSubscription = async (ctx) => {
-  const { id, first_name } = ctx.from;
-  await ctx.replyWithMarkdown(
-    `Для продления подписки отправьте новый скриншот оплаты.\n\n` +
-    `🔐 *VPN подписка: ${process.env.VPN_PRICE || 132} руб/мес*\n\n` +
-    `${paymentDetails(id, first_name)}\n\n` +
-    '_После оплаты отправьте скриншот чека_',
-    { disable_web_page_preview: true }
-  );
-  await ctx.answerCbQuery();
-};
-
+/**
+ * Просит пользователя написать вопрос.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.promptForQuestion = async (ctx) => {
-  await ctx.reply('✍️ Напишите ваш вопрос в следующем сообщении. Я передам его администратору.');
-  await ctx.answerCbQuery();
+    // Устанавливаем флаг, что бот ожидает вопрос от пользователя
+    ctx.session.awaitingQuestion = true; 
+    await ctx.reply('✍️ Напишите ваш вопрос в следующем сообщении. Я передам его администратору.');
+    await ctx.answerCbQuery();
 };
 
+/**
+ * Отправляет конфиг-файл VPN и видеоинструкцию пользователю.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.requestVpnInfo = async (ctx) => {
-  const userId = parseInt(ctx.match[1]);
-  const user = await User.findOne({ userId });
-
-  // Проверяем, что подписка активна и пользователь не подтверждал настройку
-  // Также проверяем, что это первая подписка (хотя флаг vpnConfigured более универсален)
-  if (!user || user.status !== 'active' || user.vpnConfigured) {
-    await ctx.reply('⚠️ Вы можете запросить инструкцию только при активной подписке и если вы ещё не подтверждали настройку.');
-    return ctx.answerCbQuery();
-  }
-
-  await ctx.telegram.sendMessage(
-    process.env.ADMIN_ID,
-    `🔔 Пользователь ${user.firstName || user.username || 'Без имени'} (ID: ${userId}) запросил файл конфигурации и видеоинструкцию.`,
-    Markup.inlineKeyboard([
-      [Markup.button.callback('➡️ Отправить инструкцию', `send_instruction_to_${userId}`)]
-    ])
-  );
-
-  await ctx.reply('✅ Ваш запрос на получение инструкции отправлен администратору. Он вышлет вам необходимые файлы в ближайшее время.');
-  await ctx.answerCbQuery();
-};
-
-// Обработка нажатия кнопки "Успешно настроил"
-exports.handleVpnConfigured = async (ctx) => {
-  const userId = parseInt(ctx.match[1]);
-  const user = await User.findOne({ userId });
-
-  if (!user) {
-    return ctx.answerCbQuery('Пользователь не найден.');
-  }
-
-  // Проверяем, не подтверждал ли пользователь уже настройку
-  if (user.vpnConfigured) {
-    return ctx.answerCbQuery('Вы уже подтвердили успешную настройку ранее.');
-  }
-
-  // Обновляем статус пользователя в базе данных
-  await User.findOneAndUpdate(
-    { userId },
-    { vpnConfigured: true },
-    { new: true }
-  );
-
-  // Уведомляем администратора
-  await ctx.telegram.sendMessage(
-    process.env.ADMIN_ID,
-    `🎉 Пользователь ${user.firstName || user.username || 'Без имени'} (ID: ${userId}) успешно настроил VPN!`
-  );
-
-  await ctx.reply('Спасибо за подтверждение! Приятного использования VPN.');
-  await ctx.answerCbQuery('Подтверждение получено!');
-};
-
-// НОВАЯ ФУНКЦИЯ: Запрос описания проблемы с настройкой VPN
-exports.promptVpnFailure = async (ctx) => {
-  const userId = parseInt(ctx.match[1]); 
-
-  if (ctx.from.id !== userId) {
-    return ctx.answerCbQuery('Это не ваша кнопка.');
-  }
-
-  ctx.session.awaitingVpnTroubleshoot = userId;
-
-  await ctx.reply('Пожалуйста, подробно опишите, что именно у вас не получилось при настройке VPN, или на каком шаге возникла проблема.');
-  await ctx.answerCbQuery();
-};
-
-// --- Новые функции для отмены подписки ---
-exports.promptCancelSubscription = async (ctx) => {
-    const userId = ctx.from.id;
+    const userId = parseInt(ctx.match[1]);
     const user = await User.findOne({ userId });
 
     if (!user || user.status !== 'active') {
-        await ctx.reply('⚠️ У вас нет активной подписки для отмены.');
+        await ctx.reply('⚠️ Вы можете запросить инструкцию только при активной подписке.');
         return ctx.answerCbQuery();
     }
 
+    // НОВОЕ: Если клиент WG уже создан, переотправляем конфиг
+    if (user.wgClientId) {
+        try {
+            const fileBuffer = await wgService.getWgClientConfig(user.wgClientId);
+            const qrCodeBuffer = await wgService.getWgClientQrCode(user.wgClientId);
+
+            await ctx.telegram.sendDocument(
+                userId,
+                { source: fileBuffer, filename: `wg-config-${userId}.conf` },
+                { caption: '📁 Ваш файл конфигурации WireGuard (повторно):' }
+            );
+            await ctx.telegram.sendPhoto(
+                userId,
+                { source: qrCodeBuffer, filename: `wg-qr-${userId}.svg` },
+                { caption: '📸 QR-код для настройки WireGuard (повторно):' }
+            );
+
+            if (process.env.VPN_VIDEO_FILE_ID) {
+                await ctx.telegram.sendVideo(
+                    userId,
+                    process.env.VPN_VIDEO_FILE_ID,
+                    { caption: '🎬 Видеоинструкция по настройке VPN (повторно):' }
+                );
+            }
+
+            await ctx.telegram.sendMessage(
+                userId,
+                '✅ Файл конфигурации, QR-код и видеоинструкция (если есть) отправлены повторно. Если проблемы остались, нажмите "Не справился с настройкой".',
+                Markup.inlineKeyboard([
+                    [
+                        Markup.button.callback('✅ Успешно настроил', `vpn_configured_${userId}`),
+                        Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${userId}`)
+                    ]
+                ])
+            );
+
+            let userName = user.firstName || user.username || 'Без имени';
+            if (user.username) {
+                userName = `${userName} (@${user.username})`;
+            }
+            await ctx.telegram.sendMessage(
+                process.env.ADMIN_ID,
+                `🔔 Пользователь ${userName} (ID: ${userId}) повторно запросил файл конфигурации.`
+            );
+
+        } catch (error) {
+            console.error(`Ошибка при повторной отправке WG-конфига для ${userId}:`, error);
+            await ctx.reply('⚠️ Произошла ошибка при повторной отправке файла. Пожалуйста, свяжитесь с администратором.');
+            await ctx.telegram.sendMessage(
+                process.env.ADMIN_ID,
+                `🚨 Ошибка при повторной отправке VPN-конфига пользователю ${userId}: ${escapeMarkdown(error.message)}`
+            );
+        }
+        return ctx.answerCbQuery();
+    }
+
+    // Если wgClientId еще нет (очень редкий случай после одобрения)
+    // или если админ хочет выслать вручную:
+    let userName = user.firstName || user.username || 'Без имени';
+    if (user.username) {
+        userName = `${userName} (@${user.username})`;
+    }
+    await ctx.telegram.sendMessage(
+        process.env.ADMIN_ID,
+        `🔔 Пользователь ${userName} (ID: ${userId}) запросил файл конфигурации и видеоинструкцию.\n` +
+        `_wgClientId отсутствует или произошла ошибка при автоматической выдаче. Возможно, требуется ручная отправка или пересоздание клиента в wg-easy._`,
+        Markup.inlineKeyboard([
+            [Markup.button.callback('➡️ Отправить инструкцию', `send_instruction_to_${userId}`)]
+        ])
+    );
+
+    await ctx.reply('✅ Ваш запрос на получение инструкции отправлен администратору. Он вышлет вам необходимые файлы в ближайшее время.');
+    await ctx.answerCbQuery();
+};
+
+/**
+ * Обрабатывает успешную настройку VPN пользователем.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleVpnConfigured = async (ctx) => {
+    const userId = parseInt(ctx.match[1]);
+    if (ctx.from.id !== userId) {
+        return ctx.answerCbQuery('Это не для вас.');
+    }
+
+    try {
+        await User.findOneAndUpdate(
+            { userId },
+            { vpnConfigured: true, awaitingVpnTroubleshoot: false }
+        );
+        await ctx.reply('👍 Отлично! Рады, что VPN успешно настроен. Если возникнут вопросы, вы всегда можете задать их.');
+        await ctx.answerCbQuery('Настройка подтверждена!');
+        await ctx.deleteMessage(); // Удалить сообщение с кнопками настройки
+    } catch (error) {
+        console.error(`Ошибка при подтверждении настройки VPN для пользователя ${userId}:`, error);
+        await ctx.reply('⚠️ Произошла ошибка при сохранении вашего статуса настройки. Пожалуйста, попробуйте позже.');
+        await ctx.answerCbQuery('Ошибка');
+    }
+};
+
+/**
+ * Просит пользователя описать проблему с настройкой VPN.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.promptVpnFailure = async (ctx) => {
+    const userId = parseInt(ctx.match[1]);
+    if (ctx.from.id !== userId) {
+        return ctx.answerCbQuery('Это не для вас.');
+    }
+
+    try {
+        // Устанавливаем флаг в сессии для пользователя, что ожидаем описание проблемы
+        ctx.session.awaitingVpnTroubleshoot = userId; 
+        await ctx.reply('😞 Извините, что возникли трудности. Пожалуйста, опишите вашу проблему как можно подробнее в следующем сообщении, и администратор свяжется с вами для помощи.');
+        await ctx.answerCbQuery('Ожидание описания проблемы');
+        await ctx.deleteMessage(); // Удалить сообщение с кнопками настройки
+    } catch (error) {
+        console.error(`Ошибка при запросе описания проблемы для пользователя ${userId}:`, error);
+        await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
+        await ctx.answerCbQuery('Ошибка');
+    }
+};
+
+
+// --- Обработчики для отмены подписки ---
+
+/**
+ * Запрашивает подтверждение отмены подписки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.promptCancelSubscription = async (ctx) => {
     await ctx.reply(
-        'Вы уверены, что хотите отменить подписку? Она будет деактивирована, и доступ к VPN будет прекращен.\n\n' +
-        'Ваша подписка активна до ' + formatDate(user.expireDate, true) + '.',
+        'Вы уверены, что хотите отменить подписку на VPN? Доступ будет немедленно прекращен.',
         Markup.inlineKeyboard([
             [
                 Markup.button.callback('✅ Да, отменить', 'cancel_subscription_final'),
@@ -237,6 +319,10 @@ exports.promptCancelSubscription = async (ctx) => {
     await ctx.answerCbQuery();
 };
 
+/**
+ * Окончательная отмена подписки и удаление клиента WireGuard.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.cancelSubscriptionFinal = async (ctx) => {
     const userId = ctx.from.id;
     const user = await User.findOne({ userId });
@@ -251,14 +337,31 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             { userId },
             { 
                 status: 'inactive', 
-                expireDate: new Date(), 
-                vpnConfigured: false 
+                expireDate: new Date(), // Устанавливаем дату истечения на текущую
+                vpnConfigured: false,
+                wgClientId: null // Очищаем WG Client ID
             }
         );
 
-        await ctx.reply('✅ Ваша подписка успешно отменена. Доступ к VPN прекращен.');
+        // НОВОЕ: Удаление клиента WireGuard из wg-easy
+        if (user.wgClientId) {
+            try {
+                await wgService.deleteWgClient(user.wgClientId);
+                console.log(`[cancelSubscriptionFinal] Клиент WireGuard ${user.wgClientId} удален из wg-easy.`);
+            } catch (wgError) {
+                console.error(`❌ Ошибка при удалении WG-Easy клиента ${user.wgClientId}:`, wgError.message);
+                await ctx.telegram.sendMessage(
+                    process.env.ADMIN_ID,
+                    `⚠️ Ошибка при попытке удалить VPN-клиента ${user.wgClientId} для пользователя ${userId}. Проверьте wg-easy вручную.\n` +
+                    `Ошибка: ${escapeMarkdown(wgError.message)}`
+                );
+            }
+        }
 
-        // Уведомление администратора об отмене
+        await ctx.reply('✅ Ваша подписка успешно отменена. Доступ к VPN прекращен.');
+        await ctx.answerCbQuery();
+        await ctx.deleteMessage(); // Удаляем сообщение с кнопками подтверждения
+
         let userName = user.firstName || user.username || 'Без имени';
         if (user.username) {
             userName = `${userName} (@${user.username})`;
@@ -271,11 +374,16 @@ exports.cancelSubscriptionFinal = async (ctx) => {
     } catch (error) {
         console.error(`Ошибка при отмене подписки для пользователя ${userId}:`, error);
         await ctx.reply('⚠️ Произошла ошибка при отмене подписки. Пожалуйста, попробуйте позже или свяжитесь с администратором.');
+        await ctx.answerCbQuery('Ошибка');
     }
-    await ctx.answerCbQuery();
 };
 
+/**
+ * Отмена действия по отмене подписки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.cancelSubscriptionAbort = async (ctx) => {
-    await ctx.reply('Отмена подписки отклонена. Ваша подписка продолжает действовать.');
+    await ctx.reply('Отмена подписки отменена. Ваша подписка продолжает действовать.');
     await ctx.answerCbQuery();
+    await ctx.deleteMessage(); // Удаляем сообщение с кнопками подтверждения
 };
