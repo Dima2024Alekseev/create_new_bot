@@ -70,8 +70,8 @@ exports.formatDuration = (ms) => {
  */
 exports.escapeMarkdown = (text) => {
   if (typeof text !== 'string') return text; // Убеждаемся, что работаем со строкой
-  // Символы, которые нужно экранировать в MarkdownV2
-  // Полный список символов, требующих экранирования: _, *, [, ], (, ), ~, `, >, #, +, -, =, |, {, }, ., !
+  // Полный список символов, требующих экранирования в MarkdownV2
+  // _, *, [, ], (, ), ~, `, >, #, +, -, =, |, {, }, ., !
   const charsToEscape = /[_*[\]()~`>#+\-=|{}.!]/g;
   return text.replace(charsToEscape, '\\$&');
 };

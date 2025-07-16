@@ -26,7 +26,7 @@ exports.handlePhoto = async (ctx) => {
       { userId: id },
       {
         userId: id,
-        username: username || first_name,
+        username: username || first_name, // Сохраняем username или first_name для пользователя
         firstName: first_name,
         paymentPhotoId: photo.file_id,
         paymentPhotoDate: new Date(), // Добавлено: сохраняем дату отправки скриншота
@@ -41,19 +41,29 @@ exports.handlePhoto = async (ctx) => {
       Markup.button.callback('❌ Отклонить', `reject_${id}`)
     ]);
 
-    // ИЗМЕНЕНО: Экранируем first_name и username перед использованием в caption
-    // Важно: @ в username тоже может быть специальным, но Telegram его обычно обрабатывает нормально.
-    // Если проблема persist, можно убрать @ отсюда и добавить просто username
-    const escapedFirstName = escapeMarkdown(first_name);
-    // Для username используем escapeMarkdown только для самого username, а не для '@'
-    const escapedUsername = username ? `@${escapeMarkdown(username)}` : 'нет';
+    // НОВОЕ: Более надёжное формирование строки для имени пользователя
+    let userDisplay = '';
+    // Всегда экранируем first_name (если есть, иначе используем заглушку)
+    const safeFirstName = escapeMarkdown(first_name || 'Не указано'); 
+    
+    if (username) {
+        // Если username есть, используем его с @ и экранируем
+        userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
+    } else {
+        // Если username нет, используем только safeFirstName и явно указываем отсутствие username
+        userDisplay = `${safeFirstName} (без username)`; 
+    }
+    // Если по какой-то причине first_name тоже пустой (редко, но возможно)
+    if (!first_name && !username) {
+        userDisplay = `Неизвестный пользователь`;
+    }
 
     await ctx.telegram.sendPhoto(
       process.env.ADMIN_ID,
       photo.file_id,
       {
         caption: `📸 *Новый платёж от пользователя:*\n` +
-                 `Имя: ${escapedFirstName} (${escapedUsername})\n` + // Форматирование (Имя: User (@username))
+                 `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
                  `ID: ${id}`,
         parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в caption
         ...keyboard // Разворачиваем кнопки
