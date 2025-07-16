@@ -6,6 +6,16 @@ const WG_API_URL = process.env.WG_API_URL;
 const WG_API_USERNAME = process.env.WG_API_USERNAME;
 const WG_API_PASSWORD = process.env.WG_API_PASSWORD;
 
+// --- DEBUG LOGS START ---
+console.log('DEBUG: Resolved .env path:', path.resolve(__dirname, '../../primer.env'));
+console.log('DEBUG: WG_API_URL from .env:', WG_API_URL);
+console.log('DEBUG: WG_API_USERNAME from .env:', WG_API_USERNAME);
+console.log('DEBUG: WG_API_PASSWORD length from .env:', WG_API_PASSWORD ? WG_API_PASSWORD.length : 'undefined/null');
+// Если вы ОЧЕНЬ хотите увидеть сам пароль (ТОЛЬКО ДЛЯ ДЕБАГА, НЕ ОСТАВЛЯЙТЕ В ПРОДАКШЕНЕ!):
+// console.log('DEBUG: WG_API_PASSWORD value from .env:', WG_API_PASSWORD);
+// --- DEBUG LOGS END ---
+
+
 // Функция для получения токена аутентификации
 async function getAuthToken() {
     try {
@@ -22,7 +32,7 @@ async function getAuthToken() {
 
 // Функция для создания пользователя WireGuard
 async function createWgClient(name) {
-    const token = await getAuthToken();
+    const token = await getAuthToken(); // Эта строка вызовет getAuthToken()
     try {
         const response = await axios.post(`${WG_API_URL}/users`, {
             name: name, // Имя клиента в WireGuard, например, имя пользователя Telegram
