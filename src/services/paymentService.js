@@ -1,124 +1,175 @@
 const User = require('../models/User');
-const { formatDate, sendTelegramMessage } = require('../utils/helpers');
+const { Markup } = require('telegraf');
+const { checkAdmin } = require('../utils/auth');
+// Убедитесь, что escapeMarkdown импортирован правильно
+const { formatDate, escapeMarkdown } = require('../utils/helpers'); // ОБНОВЛЕНО
 
-class PaymentService {
-  /**
-   * Создание новой заявки на оплату
-   */
-  static async createPayment(userId, photoId, userData) {
-    return await User.findOneAndUpdate(
-      { userId },
-      {
-        userId,
-        ...userData,
-        paymentPhotoId: photoId,
-        status: 'pending',
-        startDate: new Date()
-      },
-      { upsert: true, new: true }
-    );
+/**
+ * Обрабатывает загруженный пользователем скриншот оплаты.
+ * Сохраняет скриншот в БД и отправляет его администратору для проверки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handlePhoto = async (ctx) => {
+  const { id, first_name, username } = ctx.from;
+
+  // Если это админ, и он случайно отправил фото, игнорируем
+  if (id === parseInt(process.env.ADMIN_ID)) {
+    return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
   }
 
-  /**
-   * Подтверждение платежа админом
-   */
-  static async approvePayment(userId) {
-    const expireDate = new Date();
-    expireDate.setMonth(expireDate.getMonth() + 1); // +1 месяц подписки
+  // Получаем ID последнего (самого большого) фото из массива
+  const photo = ctx.message.photo.pop();
 
-    const user = await User.findOneAndUpdate(
+  try {
+    // Находим или создаем пользователя и обновляем информацию о платеже
+    await User.findOneAndUpdate(
+      { userId: id },
+      {
+        userId: id,
+        username: username || first_name,
+        firstName: first_name,
+        paymentPhotoId: photo.file_id,
+        paymentPhotoDate: new Date(), // Добавлено: сохраняем дату отправки скриншота
+        status: 'pending' // Статус ожидания проверки
+      },
+      { upsert: true, new: true } // Создать, если не существует; вернуть обновленный документ
+    );
+
+    // Подготавливаем кнопки для администратора
+    const keyboard = Markup.inlineKeyboard([
+      Markup.button.callback('✅ Принять', `approve_${id}`),
+      Markup.button.callback('❌ Отклонить', `reject_${id}`)
+    ]);
+
+    // ИЗМЕНЕНО: Экранируем first_name и username перед использованием в caption
+    // Важно: @ в username тоже может быть специальным, но Telegram его обычно обрабатывает нормально.
+    // Если проблема persist, можно убрать @ отсюда и добавить просто username
+    const escapedFirstName = escapeMarkdown(first_name);
+    // Для username используем escapeMarkdown только для самого username, а не для '@'
+    const escapedUsername = username ? `@${escapeMarkdown(username)}` : 'нет';
+
+    await ctx.telegram.sendPhoto(
+      process.env.ADMIN_ID,
+      photo.file_id,
+      {
+        caption: `📸 *Новый платёж от пользователя:*\n` +
+                 `Имя: ${escapedFirstName} (${escapedUsername})\n` + // Форматирование (Имя: User (@username))
+                 `ID: ${id}`,
+        parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в caption
+        ...keyboard // Разворачиваем кнопки
+      }
+    );
+
+    await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+  } catch (error) {
+    console.error('Ошибка при обработке фото/платежа:', error);
+    await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
+  }
+};
+
+/**
+ * Обрабатывает одобрение платежа администратором.
+ * Активирует подписку пользователя и отправляет уведомление.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleApprove = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const userId = parseInt(ctx.match[1]);
+
+  try {
+    const user = await User.findOne({ userId });
+
+    let newExpireDate = new Date();
+
+    if (user && user.expireDate && user.expireDate > new Date()) {
+      newExpireDate = new Date(user.expireDate);
+    }
+
+    newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+    newExpireDate.setHours(23, 59, 59, 999);
+
+    const updatedUser = await User.findOneAndUpdate(
       { userId },
       {
         status: 'active',
-        expireDate,
-        lastReminder: null // Сбрасываем напоминания
+        expireDate: newExpireDate,
+        paymentPhotoId: null,
+        paymentPhotoDate: null,
+        $inc: { subscriptionCount: 1 }
       },
-      { new: true }
+      { new: true, upsert: true }
     );
 
-    if (!user) throw new Error('Пользователь не найден');
+    let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
+                  `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
 
-    // Генерация VPN-данных
-    const vpnCredentials = this.generateVpnCredentials(user);
+    let keyboard = Markup.inlineKeyboard([]);
 
-    return {
-      user,
-      message: `🎉 Подписка активирована до ${formatDate(expireDate)}!\n\n` +
-        `Данные для подключения:\n` +
-        `Сервер: ${vpnCredentials.server}\n` +
-        `Логин: ${vpnCredentials.login}\n` +
-        `Пароль: ${vpnCredentials.password}`
-    };
+    if (updatedUser.subscriptionCount === 1) {
+      message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
+      keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
+      ]);
+    } else {
+      message += `Ваша подписка успешно продлена.`;
+    }
+
+    await ctx.telegram.sendMessage(
+      userId,
+      message,
+      keyboard.reply_markup ? { parse_mode: 'Markdown', ...keyboard } : { parse_mode: 'Markdown' }
+    );
+
+    await ctx.answerCbQuery('✅ Платёж принят');
+    await ctx.deleteMessage();
+  } catch (error) {
+    console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
+    await ctx.answerCbQuery('⚠️ Ошибка при одобрении платежа!');
+    await ctx.reply('⚠️ Произошла ошибка при одобрении платежа. Проверьте логи.');
+  }
+};
+
+/**
+ * Обрабатывает отклонение платежа администратором.
+ * Устанавливает статус пользователя как "rejected" и уведомляет его.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleReject = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
   }
 
-  /**
-   * Отклонение платежа
-   */
-  static async rejectPayment(userId) {
-    const user = await User.findOneAndUpdate(
+  const userId = parseInt(ctx.match[1]);
+
+  try {
+    await User.findOneAndUpdate(
       { userId },
-      { status: 'rejected' },
-      { new: true }
+      {
+        status: 'rejected',
+        paymentPhotoId: null,
+        paymentPhotoDate: null
+      }
     );
 
-    if (!user) throw new Error('Пользователь не найден');
+    await ctx.telegram.sendMessage(
+      userId,
+      '❌ *Платёж отклонён*\n\n' +
+      'Возможные причины:\n' +
+      '- Неверная сумма\n' +
+      '- Нет комментария к платежу\n' +
+      '- Нечитаемый скриншот\n\n' +
+      '*Попробуйте отправить чек ещё раз.*',
+      { parse_mode: 'Markdown' }
+    );
 
-    return {
-      user,
-      message: '❌ Платёж отклонён. Проверьте реквизиты и попробуйте снова.'
-    };
+    await ctx.answerCbQuery('❌ Платёж отклонён');
+    await ctx.deleteMessage();
+  } catch (error) {
+    console.error(`Ошибка при отклонении платежа для пользователя ${userId}:`, error);
+    await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
+    await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
   }
-
-  /**
-   * Проверка активных подписок
-   */
-  static async checkActiveSubscriptions() {
-    return await User.find({
-      status: 'active',
-      expireDate: { $gt: new Date() }
-    });
-  }
-
-  /**
-   * Получение pending-заявок
-   */
-  static async getPendingPayments() {
-    return await User.find({ status: 'pending' });
-  }
-
-  /**
-   * Генерация VPN-данных
-   */
-  static generateVpnCredentials(user) {
-    return {
-      server: 'vpn.example.com',
-      login: user.username || `user${user.userId}`,
-      password: this.generatePassword(),
-      configLink: this.generateConfigLink(user.userId)
-    };
-  }
-
-  /**
-   * Генерация случайного пароля
-   */
-  static generatePassword() {
-    return Math.random().toString(36).slice(-8) +
-      Math.random().toString(36).slice(-8);
-  }
-
-  /**
-   * Генерация ссылки на конфиг
-   */
-  static generateConfigLink(userId) {
-    return `https://api.vpn-service.com/config/${userId}/${this.generateToken()}`;
-  }
-
-  /**
-   * Генерация токена для доступа
-   */
-  static generateToken() {
-    return require('crypto').randomBytes(16).toString('hex');
-  }
-}
-
-module.exports = PaymentService;
+};
