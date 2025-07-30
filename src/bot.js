@@ -3,29 +3,27 @@ require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
-const User = require('./models/User'); 
+const User = require('./models/User');
 
 // Импорт контроллеров
-const { 
-  handleStart, 
-  checkSubscriptionStatus, 
-  extendSubscription, 
-  promptForQuestion, 
-  requestVpnInfo, 
-  handleVpnConfigured, 
-  promptVpnFailure, 
-  promptCancelSubscription, 
-  cancelSubscriptionFinal, 
-  cancelSubscriptionAbort 
-} = require('./controllers/userController'); 
+const {
+  handleStart,
+  checkSubscriptionStatus,
+  extendSubscription,
+  promptForQuestion,
+  requestVpnInfo,
+  handleVpnConfigured,
+  promptVpnFailure,
+  promptCancelSubscription,
+  cancelSubscriptionFinal,
+  cancelSubscriptionAbort
+} = require('./controllers/userController');
 
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
-// ИЗМЕНЕНО: checkAdmin теперь импортируется из utils/auth
-const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController'); 
+const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
-// НОВОЕ: Импорт checkAdmin из утилиты
-const { checkAdmin } = require('./utils/auth');
+const { checkAdmin } = require('./utils/auth'); // Импорт checkAdmin из утилиты
 
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
@@ -39,25 +37,27 @@ bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
 connectDB().catch(err => {
   console.error('❌ MongoDB connection failed:', err);
-  process.exit(1); 
+  process.exit(1);
 });
 
 // --- Глобальные обработчики ошибок для устойчивости бота ---
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
-  console.error('Stack trace:', reason.stack); 
+  console.error('Stack trace:', reason.stack);
 });
 
 process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
-  console.error('Stack trace:', err.stack); 
+  console.error('Stack trace:', err.stack);
   try {
     await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
   } catch (e) {
     console.error("Failed to send uncaught exception to admin:", e);
   }
+  // Используйте bot.stop() только если это действительно критическая ошибка, требующая перезапуска.
+  // Для большинства ошибок лучше не останавливать бота.
   await bot.stop().catch(e => console.error("Error stopping bot on uncaught exception:", e));
-  process.exit(1);
+  process.exit(1); // Выход из процесса, чтобы PM2 или другая система управления перезапустила бота
 });
 
 // --- Middleware для ответов АДМИНА, отправки инструкций и обработки проблем ---
@@ -73,7 +73,7 @@ bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
-      await handleAnswer(ctx); 
+      await handleAnswer(ctx);
       return;
     }
 
@@ -87,7 +87,7 @@ bot.use(async (ctx, next) => {
         await ctx.reply(`✅ Файл конфигурации успешно отправлен пользователю ${targetUserId}.`);
 
         ctx.session.awaitingVpnFileFor = null;
-        ctx.session.awaitingVpnVideoFor = targetUserId; 
+        ctx.session.awaitingVpnVideoFor = targetUserId;
         await ctx.reply('Теперь, пожалуйста, загрузите видеоинструкцию для этого пользователя:');
         return;
       } catch (error) {
@@ -123,7 +123,7 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
       } finally {
-        ctx.session.awaitingVpnVideoFor = null; 
+        ctx.session.awaitingVpnVideoFor = null;
       }
       return;
     }
@@ -131,7 +131,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
-      
+
       try {
         await ctx.telegram.sendMessage(
           targetUserId,
@@ -144,7 +144,7 @@ bot.use(async (ctx, next) => {
         console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
       } finally {
-        ctx.session.awaitingAnswerVpnIssueFor = null; 
+        ctx.session.awaitingAnswerVpnIssueFor = null;
       }
       return;
     }
@@ -157,11 +157,11 @@ bot.use(async (ctx, next) => {
   if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
-    const user = await User.findOne({ userId }); 
+    const user = await User.findOne({ userId });
 
     let userName = user?.firstName || user?.username || 'Без имени';
     if (user?.username) {
-        userName = `${userName} (@${user.username})`;
+      userName = `${userName} (@${user.username})`;
     }
 
     await ctx.telegram.sendMessage(
@@ -177,45 +177,72 @@ bot.use(async (ctx, next) => {
         }
       }
     );
-    
+
     await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
-    
+
     ctx.session.awaitingVpnTroubleshoot = null;
-    return; 
+    return;
   }
 
-  return next(); 
+  return next();
 });
 
 
 // --- Обработчики команд ---
 
 bot.start(async (ctx) => {
-    if (checkAdmin(ctx)) {
-        await checkAdminMenu(ctx); 
-    } else {
-        await handleStart(ctx); 
-    }
+  if (checkAdmin(ctx)) {
+    await checkAdminMenu(ctx);
+  } else {
+    await handleStart(ctx);
+  }
 });
 
+// --- ИЗМЕНЕННЫЙ ОБРАБОТЧИК bot.on('text') ---
 bot.on('text', async (ctx, next) => {
-    if (ctx.session?.awaitingVpnTroubleshoot || ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
-        return next(); 
+  // Если это админ в ожидании ответа или пользователь в ожидании описания проблемы VPN,
+  // пусть эти обработчики идут первыми, как и задумано.
+  if (ctx.session?.awaitingVpnTroubleshoot || ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    return next();
+  }
+
+  // Если это не команда (не начинается с '/')
+  if (!ctx.message.text.startsWith('/')) {
+    const userId = ctx.from.id;
+    const user = await User.findOne({ userId });
+
+    // Условия, при которых мы можем предположить, что пользователь пытался отправить скриншот,
+    // но пришел только текст (или, возможно, ничего не пришло в photo):
+    // 1. У пользователя статус 'inactive' или 'rejected' (т.е. ему нужно оплатить или повторно оплатить).
+    // 2. Он не находится в сессии ожидания ответа на вопрос (чтобы не перехватывать ответы).
+    // 3. Сообщение не содержит фото (гарантировано, т.к. мы в bot.on('text')).
+    if (user && (user.status === 'inactive' || user.status === 'rejected') && !ctx.session?.awaitingAnswerFor) {
+      await ctx.reply(
+        'Мы не получили ваш скриншот оплаты. 😔\n\n' +
+        'Возможно, у вас включены настройки конфиденциальности, которые мешают отправке медиафайлов ботам, ' +
+        'или возникла другая ошибка. Пожалуйста, убедитесь, что ваш аккаунт не скрыт, ' +
+        'и попробуйте отправить скриншот ещё раз.\n\n' +
+        'Если проблема сохраняется, свяжитесь с поддержкой.'
+      );
+      return; // Завершаем обработку, чтобы не вызывать handleQuestion
     }
-    if (!ctx.message.text.startsWith('/')) {
-        await handleQuestion(ctx);
-    } else {
-        return next(); 
-    }
+
+    // Если предыдущие условия не сработали, значит это либо вопрос, либо что-то другое.
+    // Передаем сообщение для обработки как вопрос.
+    await handleQuestion(ctx);
+  } else {
+    // Если это команда, передаём её дальше по цепочке обработчиков
+    return next();
+  }
 });
+// --- КОНЕЦ ИЗМЕНЕНИЙ В ОБРАБОТЧИКЕ bot.on('text') ---
 
 
 // Админские команды
-bot.command('admin', checkAdminMenu); 
+bot.command('admin', checkAdminMenu);
 bot.command('check', checkPayments);
 bot.command('stats', stats);
-// ИЗМЕНЕНО: test-обработчик для проверки, потом можно заменить на listQuestions
-bot.command('questions', listQuestions); 
+bot.command('questions', listQuestions);
 
 
 // Обработка платежей (фото)
@@ -230,10 +257,10 @@ bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
-bot.action('refresh_stats', stats); 
+bot.action('refresh_stats', stats);
 
 bot.action(/answer_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) { // Используем новый импорт checkAdmin
+  if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
   ctx.session.awaitingAnswerFor = ctx.match[1];
@@ -242,24 +269,24 @@ bot.action(/answer_(\d+)/, async (ctx) => {
 });
 
 bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) { // Используем новый импорт checkAdmin
+  if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
   const targetUserId = ctx.match[1];
   ctx.session.awaitingVpnFileFor = targetUserId;
-  ctx.session.awaitingVpnVideoFor = null; 
+  ctx.session.awaitingVpnVideoFor = null;
   await ctx.reply(`Загрузите *файл* конфигурации (например, .ovpn) для пользователя ${targetUserId}:`);
   await ctx.answerCbQuery();
 });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-    if (!checkAdmin(ctx)) { // Используем новый импорт checkAdmin
-      return ctx.answerCbQuery('🚫 Только для админа');
-    }
-    const targetUserId = parseInt(ctx.match[1]);
-    ctx.session.awaitingAnswerVpnIssueFor = targetUserId; 
-    await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
-    await ctx.answerCbQuery();
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const targetUserId = parseInt(ctx.match[1]);
+  ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
+  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+  await ctx.answerCbQuery();
 });
 
 
@@ -269,12 +296,12 @@ bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
-bot.action(/vpn_failed_(\d+)/, promptVpnFailure); 
+bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 
 // --- Новые обработчики для отмены подписки ---
-bot.action('cancel_subscription_confirm', promptCancelSubscription); 
-bot.action('cancel_subscription_final', cancelSubscriptionFinal);   
-bot.action('cancel_subscription_abort', cancelSubscriptionAbort);   
+bot.action('cancel_subscription_confirm', promptCancelSubscription);
+bot.action('cancel_subscription_final', cancelSubscriptionFinal);
+bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 
 
 // --- Напоминания ---
