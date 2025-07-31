@@ -1,223 +1,205 @@
 const User = require('../models/User');
-const { Telegraf, Markup } = require('telegraf'); // Добавлен Telegraf для Markup, если он не импортирован выше
-const QRCode = require('qrcode'); // Убедитесь, что эта библиотека установлена
+const { Markup } = require('telegraf');
+const { checkAdmin } = require('../utils/auth');
+// Убедитесь, что escapeMarkdown импортирован правильно вместе с formatDate
+const { formatDate, escapeMarkdown } = require('../utils/helpers');
+const { handleStart } = require('./userController'); // Импортируем handleStart из userController
 
-// Предполагается, что bot.telegram доступен глобально или передается
-// в реальном приложении это обычно делается через экземпляр бота
-// или через ctx.telegram.
+/**
+ * Обрабатывает загруженный пользователем скриншот оплаты.
+ * Сохраняет скриншот в БД и отправляет его администратору для проверки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handlePhoto = async (ctx) => {
+    const { id, first_name, username } = ctx.from;
 
-// Утилита для получения имени пользователя для админского сообщения
-const getUserNameForAdmin = (user) => {
-    let userName = user?.firstName || 'Неизвестный пользователь';
-    if (user?.username) {
-        userName += ` (@${user.username})`;
+    // Если это админ, и он случайно отправил фото, игнорируем его.
+    if (id === parseInt(process.env.ADMIN_ID)) {
+        return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
-    return userName;
-};
 
-// Функция для обработки полученного скриншота
-async function handlePhoto(ctx) {
-    const userId = ctx.from.id;
-    const photo = ctx.message.photo[ctx.message.photo.length - 1]; // Получаем фото в лучшем качестве
+    // Получаем ID последнего (самого большого) фото из массива
+    const photo = ctx.message.photo.pop();
 
     try {
-        let user = await User.findOne({ userId });
+        // Находим или создаем пользователя и обновляем информацию о платеже
+        await User.findOneAndUpdate(
+            { userId: id },
+            {
+                userId: id,
+                username: username || first_name, // Сохраняем username или first_name для пользователя
+                firstName: first_name,
+                paymentPhotoId: photo.file_id,
+                paymentPhotoDate: new Date(), // Добавлено: сохраняет дату отправки скриншота
+                status: 'pending' // Статус ожидания проверки
+            },
+            { upsert: true, new: true } // Создать, если не существует; вернуть обновленный документ
+        );
 
-        if (!user) {
-            user = new User({
-                userId: userId,
-                username: ctx.from.username,
-                firstName: ctx.from.first_name,
-                lastName: ctx.from.last_name,
-                status: 'inactive'
-            });
-            await user.save();
+        // Подготавливаем кнопки для администратора
+        const keyboard = Markup.inlineKeyboard([
+            Markup.button.callback('✅ Принять', `approve_${id}`),
+            Markup.button.callback('❌ Отклонить', `reject_${id}`)
+        ]);
+
+        // НОВОЕ: Более надёжное формирование строки с именем пользователя для отображения
+        let userDisplay = '';
+        // Всегда экранируем first_name (если есть, иначе используем заглушку)
+        const safeFirstName = escapeMarkdown(first_name || 'Не указано');
+
+        if (username) {
+            // Если username есть, используем его с @ и экранируем
+            userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
+        } else {
+            // Если username нет, используем только safeFirstName и явно указываем отсутствие username
+            userDisplay = `${safeFirstName} (без username)`;
+        }
+        // Если по какой-то причине first_name тоже пустой (редко, но возможно)
+        if (!first_name && !username) {
+            userDisplay = `Неизвестный пользователь`;
         }
 
-        const userNameForAdmin = getUserNameForAdmin(user);
-
-        // Отправка скриншота администратору для проверки
-        // ВНИМАНИЕ: Если админ заблокировал бота, здесь будет ошибка
-        try {
-            await ctx.telegram.sendPhoto(
-                process.env.ADMIN_ID,
-                photo.file_id,
-                {
-                    caption: `💰 *Новый скриншот оплаты от пользователя* ${userNameForAdmin} (ID: \`${userId}\`).\n\n` +
-                             `Проверьте оплату и нажмите соответствующую кнопку:`,
-                    parse_mode: 'Markdown',
-                    reply_markup: {
-                        inline_keyboard: [
-                            [
-                                Markup.button.callback('✅ Одобрить', `approve_${userId}`),
-                                Markup.button.callback('❌ Отклонить', `reject_${userId}`)
-                            ]
-                        ]
-                    }
-                }
-            );
-
-            // Сохраняем file_id скриншота в сессии или БД, если нужно для дальнейшей обработки
-            // Например, для того, чтобы админ мог посмотреть его позже
-            // user.lastPaymentScreenshotId = photo.file_id;
-            // await user.save();
-
-            await ctx.reply('✅ Ваш скриншот получен! Администратор проверит его в ближайшее время. Пожалуйста, ожидайте.');
-
-        } catch (error) {
-            // *** УСИЛЕННОЕ ЛОГИРОВАНИЕ ОШИБКИ ПРИ ПЕРЕСЫЛКЕ АДМИНУ ***
-            console.error('*** ОШИБКА ПРИ ПЕРЕСЫЛКЕ ФОТО АДМИНУ ***');
-            console.error(`Попытка отправить фото админу с ID: ${process.env.ADMIN_ID}`);
-            console.error('Полный объект ошибки:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); // Логируем все свойства ошибки
-            console.error('Сообщение об ошибке:', error.message);
-
-            if (error.response) {
-                console.error('Ошибка API Telegram (response):', JSON.stringify(error.response, null, 2));
-                // Проверяем на специфические ошибки блокировки
-                if (error.response.error_code === 403 && error.response.description && error.response.description.includes('bot was blocked by the user')) {
-                    console.error(`КРИТИЧЕСКАЯ ОШИБКА: Администратор ${process.env.ADMIN_ID} заблокировал бота! Не могу отправить скриншот.`);
-                    await ctx.reply(
-                        '⚠️ Ваш скриншот получен, но я не могу отправить его администратору. ' +
-                        'Пожалуйста, убедитесь, что администратор не заблокировал бота в своем Telegram-аккаунте. ' +
-                        'Если проблема сохраняется, свяжитесь с ним напрямую.'
-                    );
-                } else {
-                    // Другие ошибки от Telegram API
-                    console.error('Другая ошибка API Telegram:', error.response.description || 'Нет описания');
-                    await ctx.reply(
-                        '⚠️ Произошла непредвиденная ошибка при пересылке вашего скриншота администратору. ' +
-                        'Пожалуйста, попробуйте отправить скриншот еще раз или свяжитесь с поддержкой.'
-                    );
-                }
-            } else {
-                // Ошибки, не связанные напрямую с ответом API Telegram (например, проблемы с сетью)
-                console.error('Неизвестная ошибка или проблема с сетью:', error);
-                await ctx.reply(
-                    '⚠️ Произошла внутренняя ошибка при обработке вашего скриншота. ' +
-                    'Пожалуйста, попробуйте отправить его еще раз позже.'
-                );
+        await ctx.telegram.sendPhoto(
+            process.env.ADMIN_ID,
+            photo.file_id,
+            {
+                caption: `📸 *Новый платёж от пользователя:*\n` +
+                    `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
+                    `ID: ${id}`,
+                parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в подписи
+                ...keyboard // Разворачиваем кнопки
             }
-        }
+        );
 
+        await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
     } catch (error) {
-        console.error('Ошибка в handlePhoto (вне блока отправки админу):', error);
-        await ctx.reply('Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.');
+        console.error('Ошибка при обработке фото/платежа:', error);
+        await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
     }
-}
+};
 
-
-// Обработка одобрения платежа
-async function handleApprove(ctx) {
-    if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
+/**
+ * Обрабатывает одобрение платежа администратором.
+ * Активирует подписку пользователя и отправляет уведомление.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleApprove = async (ctx) => {
+    if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
 
-    const userIdToApprove = ctx.match[1];
-    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1]);
 
     try {
-        const user = await User.findOne({ userId: userIdToApprove });
+        const user = await User.findOne({ userId });
 
-        if (!user) {
-            await ctx.reply(`Пользователь с ID ${userIdToApprove} не найден.`);
-            return;
+        let newExpireDate = new Date();
+
+        if (user && user.expireDate && user.expireDate > new Date()) {
+            newExpireDate = new Date(user.expireDate);
         }
 
-        // Проверяем, активна ли уже подписка
-        if (user.status === 'active' && user.subscriptionEndDate && user.subscriptionEndDate > new Date()) {
-            await ctx.reply(`Пользователь ${user.firstName} (ID: ${userIdToApprove}) уже имеет активную подписку до ${user.subscriptionEndDate.toLocaleDateString()}.`);
-            // Предлагаем продлить
-            await ctx.telegram.sendMessage(userIdToApprove, 'Ваша подписка уже активна. Вы можете продлить ее в любое время!', Markup.inlineKeyboard([
-                Markup.button.callback('➕ Продлить подписку', 'extend_subscription')
-            ]));
-            return;
+        newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+        newExpireDate.setHours(23, 59, 59, 999);
+
+        // 1. Сначала обновляем базу данных
+        const updatedUser = await User.findOneAndUpdate(
+            { userId },
+            {
+                status: 'active',
+                expireDate: newExpireDate,
+                paymentPhotoId: null,
+                paymentPhotoDate: null,
+                $inc: { subscriptionCount: 1 }
+            },
+            { new: true, upsert: true }
+        );
+
+        await ctx.answerCbQuery('✅ Платёж принят');
+        await ctx.deleteMessage();
+
+        // 2. Затем пытаемся отправить сообщение пользователю,
+        // оборачивая это в отдельный try/catch
+        try {
+            let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
+                `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
+
+            let keyboard = Markup.inlineKeyboard([]);
+
+            if (updatedUser.subscriptionCount === 1) {
+                message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
+                keyboard = Markup.inlineKeyboard([
+                    [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
+                ]);
+            } else {
+                message += `Ваша подписка успешно продлена.`;
+            }
+
+            await ctx.telegram.sendMessage(
+                userId,
+                message,
+                keyboard.reply_markup ? { parse_mode: 'Markdown', ...keyboard } : { parse_mode: 'Markdown' }
+            );
+        } catch (e) {
+            console.error(`[handleApprove] Ошибка отправки уведомления пользователю ${userId}:`, e.message);
+            // Если бот не смог отправить сообщение пользователю, уведомляем об этом админа.
+            await ctx.reply(`⚠️ Ошибка отправки уведомления пользователю ${userId}. Возможно, бот был заблокирован.`);
         }
 
-        // Устанавливаем дату начала и окончания подписки (например, 30 дней)
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(startDate.getDate() + 30); // Подписка на 30 дней
+        // 3. Обновляем меню для пользователя
+        // Важно! Если пользователь заблокировал бота, эта функция также может вызвать ошибку.
+        // В данном случае мы уже поймали её выше, но это стоит иметь в виду.
+        const tempCtx = {
+            ...ctx,
+            from: { id: userId, first_name: updatedUser.firstName, username: updatedUser.username }
+        };
+        await handleStart(tempCtx);
 
-        user.status = 'active';
-        user.subscriptionStartDate = startDate;
-        user.subscriptionEndDate = endDate;
-        user.activatedBy = ctx.from.username || ctx.from.first_name; // Кто одобрил
+    } catch (error) {
+        console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при одобрении платежа!');
+        await ctx.reply('⚠️ Произошла ошибка при одобрении платежа. Проверьте логи.');
+    }
+};
 
-        await user.save();
+/**
+ * Обрабатывает отклонение платежа администратором.
+ * Устанавливает статус пользователя как "rejected" и уведомляет его.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleReject = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    const userId = parseInt(ctx.match[1]);
+
+    try {
+        await User.findOneAndUpdate(
+            { userId },
+            {
+                status: 'rejected',
+                paymentPhotoId: null,
+                paymentPhotoDate: null
+            }
+        );
 
         await ctx.telegram.sendMessage(
-            userIdToApprove,
-            `✅ Ваша подписка успешно активирована до *${endDate.toLocaleDateString()}*!`,
+            userId,
+            '❌ *Платёж отклонён*\n\n' +
+            'Возможные причины:\n' +
+            '- Неверная сумма\n' +
+            '- Нет комментария к платежу\n' +
+            '- Нечитаемый скриншот\n\n' +
+            '*Попробуйте отправить чек ещё раз.*',
             { parse_mode: 'Markdown' }
         );
 
-        await ctx.reply(`✅ Подписка пользователя ${user.firstName} (ID: ${userIdToApprove}) активирована до ${endDate.toLocaleDateString()}.`);
-
-        // Предложить отправить VPN-информацию
-        await ctx.telegram.sendMessage(
-            userIdToApprove,
-            'Чтобы получить доступ к VPN, нажмите кнопку ниже:',
-            Markup.inlineKeyboard([
-                Markup.button.callback('➡️ Получить доступ к VPN', `send_vpn_info_${userIdToApprove}`)
-            ])
-        );
-
-        // Отметить сообщение админа как обработанное (опционально, удалить кнопки)
-        try {
-            await ctx.editMessageReplyMarkup(Markup.inlineKeyboard([])); // Удалить кнопки
-        } catch (e) {
-            console.warn('Не удалось удалить кнопки после одобрения:', e.message);
-        }
-
+        await ctx.answerCbQuery('❌ Платёж отклонён');
+        await ctx.deleteMessage();
     } catch (error) {
-        console.error('Ошибка при одобрении платежа:', error);
-        await ctx.reply('Произошла ошибка при одобрении платежа.');
+        console.error(`Ошибка при отклонении платежа для пользователя ${userId}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
+        await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
     }
-}
-
-// Обработка отклонения платежа
-async function handleReject(ctx) {
-    if (ctx.from.id !== parseInt(process.env.ADMIN_ID)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
-    }
-
-    const userIdToReject = ctx.match[1];
-    await ctx.answerCbQuery();
-
-    try {
-        const user = await User.findOne({ userId: userIdToReject });
-
-        if (!user) {
-            await ctx.reply(`Пользователь с ID ${userIdToReject} не найден.`);
-            return;
-        }
-
-        user.status = 'rejected';
-        user.activatedBy = ctx.from.username || ctx.from.first_name; // Кто отклонил
-        await user.save();
-
-        await ctx.telegram.sendMessage(
-            userIdToReject,
-            '❌ Ваш скриншот оплаты был отклонен. Пожалуйста, проверьте правильность платежа и отправьте скриншот еще раз. Если у вас возникли вопросы, свяжитесь с поддержкой.'
-        );
-        await ctx.reply(`❌ Платеж пользователя ${user.firstName} (ID: ${userIdToReject}) отклонен.`);
-
-        // Отметить сообщение админа как обработанное (опционально, удалить кнопки)
-        try {
-            await ctx.editMessageReplyMarkup(Markup.inlineKeyboard([])); // Удалить кнопки
-        } catch (e) {
-            console.warn('Не удалось удалить кнопки после отклонения:', e.message);
-        }
-
-    } catch (error) {
-        console.error('Ошибка при отклонении платежа:', error);
-        await ctx.reply('Произошла ошибка при отклонении платежа.');
-    }
-}
-
-
-module.exports = {
-    handlePhoto,
-    handleApprove,
-    handleReject
 };
