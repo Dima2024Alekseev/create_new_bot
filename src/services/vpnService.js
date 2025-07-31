@@ -66,7 +66,7 @@ Address = ${clientData.address}
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${clientData.publicKey}  // ИЗМЕНЕНО: clientData.publicKey
+PublicKey = ${clientData.publicKey}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
