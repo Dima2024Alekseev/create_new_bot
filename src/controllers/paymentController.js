@@ -118,7 +118,7 @@ exports.handleApprove = async (ctx) => {
                 } else {
                     clientName = `telegram_${userId}`;
                 }
-                
+
                 if (clientName.length === 0) {
                     clientName = `telegram_${userId}`;
                 }
