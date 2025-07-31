@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { execSync } = require('child_process');
 
 // Конфигурация API
 const API_CONFIG = {
@@ -7,6 +8,7 @@ const API_CONFIG = {
     TIMEOUT: 15000
 };
 
+// Глобальная сессия
 let sessionCookie = null;
 
 const api = axios.create({
@@ -18,6 +20,7 @@ const api = axios.create({
     }
 });
 
+// Интерцептор для обработки кук
 api.interceptors.request.use(config => {
     if (sessionCookie) {
         config.headers.Cookie = sessionCookie;
@@ -27,12 +30,17 @@ api.interceptors.request.use(config => {
 
 async function login() {
     try {
-        const response = await api.post('/api/session', { password: API_CONFIG.PASSWORD });
+        const response = await api.post('/api/session', {
+            password: API_CONFIG.PASSWORD
+        });
+
         sessionCookie = response.headers['set-cookie']?.toString();
         if (!sessionCookie) {
             throw new Error('Не получены куки авторизации');
         }
+
         console.log('🔑 Авторизация успешна');
+        return true;
     } catch (error) {
         console.error('❌ Ошибка авторизации:', {
             status: error.response?.status,
@@ -42,14 +50,13 @@ async function login() {
     }
 }
 
-// ИЗМЕНЕНО: Эта функция теперь возвращает данные созданного клиента
 async function createClient(clientName) {
     try {
         const response = await api.post('/api/wireguard/client', {
             name: clientName,
             allowedIPs: '10.8.0.0/24'
         });
-        return response.data; // Возвращаем данные из ответа API
+        return response.data;
     } catch (error) {
         console.error('❌ Ошибка создания клиента:', {
             status: error.response?.status,
@@ -59,8 +66,19 @@ async function createClient(clientName) {
     }
 }
 
-// УДАЛЕНО: Эта функция больше не нужна, так как createClient уже возвращает нужные данные.
-// async function getClientData(clientName) { ... }
+async function getClientData(clientName) {
+    try {
+        const response = await api.get('/api/wireguard/client');
+        const client = response.data.find(c => c.name === clientName);
+        if (!client) {
+            throw new Error('Клиент не найден');
+        }
+        return client;
+    } catch (error) {
+        console.error('❌ Ошибка получения данных клиента:', error.message);
+        throw error;
+    }
+}
 
 function generateConfig(clientData) {
     return `[Interface]
@@ -77,18 +95,18 @@ PersistentKeepalive = 25`;
 
 exports.createVpnClient = async (clientName) => {
     try {
+        // 1. Авторизация
         await login();
 
+        // 2. Создание клиента
         console.log(`⌛ Создаем клиента: ${clientName}`);
-        // ИЗМЕНЕНО: Теперь мы сразу получаем clientData из createClient
-        const clientData = await createClient(clientName);
+        await createClient(clientName);
 
-        if (!clientData || !clientData.privateKey || !clientData.serverPublicKey) {
-            console.error('❌ API не вернул необходимые ключи для клиента.');
-            console.log('Полученный ответ:', JSON.stringify(clientData, null, 2));
-            throw new Error('От API не получены ключи для конфигурации');
-        }
+        // 3. Получение данных клиента
+        console.log(`🔍 Получаем данные клиента: ${clientName}`);
+        const clientData = await getClientData(clientName);
 
+        // 4. Генерация конфигурации
         console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
         const config = generateConfig(clientData);
 
