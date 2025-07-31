@@ -1,17 +1,14 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+const { execSync } = require('child_process');
 
-// Пути к файлам конфигурации
-const WG_CONFIG_PATH = path.join(require('os').homedir(), '.wg.easy/wg0.json');
-
-// API конфигурация
+// Конфигурация API
 const API_CONFIG = {
   BASE_URL: 'http://37.233.85.212:51821',
   PASSWORD: process.env.WG_API_PASSWORD,
   TIMEOUT: 15000
 };
 
+// Глобальная сессия
 let sessionCookie = null;
 
 const api = axios.create({
@@ -23,79 +20,107 @@ const api = axios.create({
   }
 });
 
-// Авторизация
+// Интерцептор для обработки кук
+api.interceptors.request.use(config => {
+  if (sessionCookie) {
+    config.headers.Cookie = sessionCookie;
+  }
+  return config;
+});
+
 async function login() {
   try {
     const response = await api.post('/api/session', {
       password: API_CONFIG.PASSWORD
     });
+
     sessionCookie = response.headers['set-cookie']?.toString();
+    if (!sessionCookie) {
+      throw new Error('Не получены куки авторизации');
+    }
+
+    console.log('🔑 Авторизация успешна');
     return true;
   } catch (error) {
-    console.error('Auth error:', error.response?.data);
-    throw error;
+    console.error('❌ Ошибка авторизации:', {
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    throw new Error('Ошибка входа в систему');
   }
 }
 
-// Чтение конфигурации из wg0.json
-function readWgConfig() {
+async function createClient(clientName) {
   try {
-    const rawData = fs.readFileSync(WG_CONFIG_PATH);
-    return JSON.parse(rawData);
+    const response = await api.post('/api/wireguard/client', {
+      name: clientName,
+      allowedIPs: '10.8.0.0/24'
+    });
+    return response.data;
   } catch (error) {
-    console.error('Error reading wg0.json:', error);
+    console.error('❌ Ошибка создания клиента:', {
+      status: error.response?.status,
+      data: error.response?.data
+    });
     throw error;
   }
 }
 
-// Генерация конфига клиента
-function generateClientConfig(clientData, serverPublicKey) {
+async function getClientData(clientName) {
+  try {
+    const response = await api.get('/api/wireguard/client');
+    const client = response.data.find(c => c.name === clientName);
+    if (!client) {
+      throw new Error('Клиент не найден');
+    }
+    return client;
+  } catch (error) {
+    console.error('❌ Ошибка получения данных клиента:', error.message);
+    throw error;
+  }
+}
+
+function generateConfig(clientData) {
   return `[Interface]
 PrivateKey = ${clientData.privateKey}
 Address = ${clientData.address}
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${serverPublicKey}
+PublicKey = ${clientData.serverPublicKey}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-// Создание VPN клиента
 exports.createVpnClient = async (clientName) => {
   try {
-    // Авторизация
+    // 1. Авторизация
     await login();
 
-    // Создание клиента через API
-    const createResponse = await api.post('/api/wireguard/client', {
-      name: clientName,
-      allowedIPs: '10.8.0.0/24'
-    });
+    // 2. Создание клиента
+    console.log(`⌛ Создаем клиента: ${clientName}`);
+    await createClient(clientName);
 
-    // Чтение обновленной конфигурации
-    const wgConfig = readWgConfig();
-    
-    // Находим созданного клиента
-    const client = wgConfig.clients.find(c => c.name === clientName);
-    if (!client) {
-      throw new Error('Client not found in wg0.json');
+    // 3. Получение данных клиента
+    console.log(`🔍 Получаем данные клиента: ${clientName}`);
+    const clientData = await getClientData(clientName);
+
+    // 4. Генерация конфигурации
+    console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
+    const config = generateConfig(clientData);
+
+    if (!config) {
+      throw new Error('Не удалось сгенерировать конфигурацию');
     }
 
-    // Получаем серверный публичный ключ
-    const serverPublicKey = wgConfig.server.publicKey;
-
-    // Генерируем конфиг
-    const config = generateClientConfig(client, serverPublicKey);
-    
-    return {
-      name: clientName,
-      config: config
-    };
-    
+    console.log('✅ Конфигурация успешно сгенерирована');
+    return config;
   } catch (error) {
-    console.error('Error in createVpnClient:', error);
-    throw error;
+    console.error('🔥 Критическая ошибка:', {
+      message: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Не удалось создать VPN-клиента: ${error.message}`);
   }
 };
