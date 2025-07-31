@@ -31,12 +31,8 @@ async function login() {
     const response = await api.post('/api/session', {
       password: API_CONFIG.PASSWORD
     });
-
-    console.log('Ответ сервера:', response.headers);
-
     sessionCookie = response.headers['set-cookie']?.toString();
     if (!sessionCookie) throw new Error('Не получены куки авторизации');
-
     console.log('🔑 Авторизация успешна');
     return true;
   } catch (error) {
@@ -78,15 +74,20 @@ async function getClientConfigFromText(clientId) {
         const response = await api.get(endpoint, {
             responseType: 'text'
         });
+
         const configText = response.data;
         console.log('✅ Конфигурация получена успешно. Парсинг данных...');
+
         const privateKeyMatch = configText.match(/PrivateKey = (.+)/);
         const presharedKeyMatch = configText.match(/PresharedKey = (.+)/);
+
         if (!privateKeyMatch) {
             throw new Error('Не удалось найти PrivateKey в конфигурации.');
         }
+
         const privateKey = privateKeyMatch[1].trim();
         const presharedKey = presharedKeyMatch ? presharedKeyMatch[1].trim() : null;
+
         return { privateKey, presharedKey };
     } catch (error) {
         console.error('❌ Ошибка получения конфигурации клиента:', {
@@ -101,11 +102,14 @@ function generateConfig(configData) {
   if (!configData.privateKey || !configData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
   }
+
   const presharedKeyLine = configData.presharedKey ? `PresharedKey = ${configData.presharedKey}` : '';
+
   return `[Interface]
 PrivateKey = ${configData.privateKey}
 Address = ${configData.address}/24
 DNS = 1.1.1.1
+
 [Peer]
 PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
 ${presharedKeyLine}
