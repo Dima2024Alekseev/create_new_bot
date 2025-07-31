@@ -107,10 +107,10 @@ exports.checkSubscriptionStatus = async (ctx) => {
     
     await ctx.replyWithMarkdown(message, {
         reply_markup: {
-            inline_keyboard: [
-                [{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }] // Добавляем кнопку здесь
-            ]
+          inline_keyboard: [
+              [{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }],
+              [{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }] // Добавляем кнопку здесь
+          ]
         }
     });
   } else if (user?.status === 'pending') {
@@ -198,6 +198,9 @@ exports.handleVpnConfigured = async (ctx) => {
 
   await ctx.reply('Спасибо за подтверждение! Приятного использования VPN.');
   await ctx.answerCbQuery('Подтверждение получено!');
+
+  // Отправляем пользователю обновлённое меню
+  await exports.handleStart(ctx);
 };
 
 // НОВАЯ ФУНКЦИЯ: Запрос описания проблемы с настройкой VPN
