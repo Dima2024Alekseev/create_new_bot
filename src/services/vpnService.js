@@ -1,14 +1,14 @@
 const axios = require('axios');
 const { execSync } = require('child_process');
 
-// Конфигурация API
+// API Configuration
 const API_CONFIG = {
   BASE_URL: 'http://37.233.85.212:51821',
-  PASSWORD: process.env.WG_API_PASSWORD, // Убедитесь, что эта переменная окружения установлена
+  PASSWORD: process.env.WG_API_PASSWORD, // Make sure this environment variable is set
   TIMEOUT: 15000
 };
 
-// Глобальная сессия
+// Global session cookie
 let sessionCookie = null;
 
 const api = axios.create({
@@ -20,7 +20,7 @@ const api = axios.create({
   }
 });
 
-// Интерцептор для обработки кук
+// Interceptor to handle cookies
 api.interceptors.request.use(config => {
   if (sessionCookie) {
     config.headers.Cookie = sessionCookie;
@@ -40,24 +40,24 @@ async function login() {
 
     sessionCookie = response.headers['set-cookie']?.toString();
     if (!sessionCookie) {
-      throw new Error('Не получены куки авторизации');
+      throw new Error('Authorization cookies not received');
     }
 
-    console.log('🔑 Авторизация успешна');
+    console.log('🔑 Authorization successful');
     return true;
   } catch (error) {
-    console.error('❌ Ошибка авторизации:', {
+    console.error('❌ Authorization error:', {
       status: error.response?.status,
       data: error.response?.data
     });
-    throw new Error('Ошибка входа в систему');
+    throw new Error('Login error');
   }
 }
 
 /**
  * Creates a new WireGuard client.
  * @param {string} clientName - The name of the client to create.
- * @returns {Promise<object>} The data of the created client.
+ * @returns {Promise<object>} The data of the created client, including privateKey, address, and serverPublicKey.
  */
 async function createClient(clientName) {
   try {
@@ -65,9 +65,11 @@ async function createClient(clientName) {
       name: clientName,
       allowedIPs: '10.8.0.0/24' // Adjust AllowedIPs as needed
     });
+    // It is crucial that the API response for client creation includes privateKey, address, and serverPublicKey.
+    // If not, this function or the API design needs adjustment.
     return response.data;
   } catch (error) {
-    console.error('❌ Ошибка создания клиента:', {
+    console.error('❌ Client creation error:', {
       status: error.response?.status,
       data: error.response?.data
     });
@@ -77,8 +79,9 @@ async function createClient(clientName) {
 
 /**
  * Retrieves data for a specific WireGuard client.
+ * This function is now primarily for retrieving general client info, not sensitive keys.
  * @param {string} clientName - The name of the client to retrieve data for.
- * @returns {Promise<object>} The client data including privateKey, address, and serverPublicKey.
+ * @returns {Promise<object>} The client data.
  */
 async function getClientData(clientName) {
   try {
@@ -86,30 +89,11 @@ async function getClientData(clientName) {
     const client = response.data.find(c => c.name === clientName);
 
     if (!client) {
-      throw new Error('Клиент не найден');
+      throw new Error('Client not found');
     }
-
-    // Assuming the API returns privateKey and serverPublicKey directly in the client object
-    // If not, you might need another API call to get the full client details including keys.
-    // For example, if there's an endpoint like /api/wireguard/client/{clientId}/config
-    // For now, we assume the initial /api/wireguard/client endpoint returns all necessary data.
-    if (!client.privateKey) {
-        // This is the crucial part: if privateKey is not directly available,
-        // you might need to fetch it from a different endpoint or the API
-        // might provide it only upon client creation.
-        // For demonstration, let's assume the API provides a way to get the config
-        // or that privateKey is part of the initial client creation response.
-        // If the API doesn't return privateKey in the GET /api/wireguard/client response,
-        // you would need to adjust this.
-        console.warn('⚠️ privateKey не найден в данных клиента. Убедитесь, что API возвращает его.');
-        // You might need to make another API call here to get the full config or private key
-        // For example: const configResponse = await api.get(`/api/wireguard/client/${client.id}/config`);
-        // and then parse it to get the privateKey.
-    }
-
     return client;
   } catch (error) {
-    console.error('❌ Ошибка получения данных клиента:', error.message);
+    console.error('❌ Error getting client data:', error.message);
     throw error;
   }
 }
@@ -122,8 +106,8 @@ async function getClientData(clientName) {
 function generateConfig(clientData) {
   // Ensure clientData and its properties exist before accessing them
   if (!clientData || !clientData.privateKey || !clientData.address || !clientData.serverPublicKey) {
-    console.error('Недостаточно данных для генерации конфигурации:', clientData);
-    throw new Error('Отсутствуют необходимые данные для генерации конфигурации (privateKey, address или serverPublicKey).');
+    console.error('Insufficient data for configuration generation:', clientData);
+    throw new Error('Missing required data for configuration generation (privateKey, address, or serverPublicKey).');
   }
 
   // The endpoint needs to be just the IP/hostname without http:// and port
@@ -148,34 +132,34 @@ PersistentKeepalive = 25`;
  */
 exports.createVpnClient = async (clientName) => {
   try {
-    // 1. Авторизация
+    // 1. Authorization
     await login();
 
-    // 2. Создание клиента
-    console.log(`⌛ Создаем клиента: ${clientName}`);
-    // The createClient function should ideally return the full client object including privateKey
-    // If it doesn't, you might need to modify the API or make an additional call to get the privateKey
-    await createClient(clientName);
+    // 2. Create client and capture its full data (including privateKey)
+    console.log(`⌛ Creating client: ${clientName}`);
+    const createdClientData = await createClient(clientName); // Capture the response data here
 
-    // 3. Получение данных клиента
-    console.log(`🔍 Получаем данные клиента: ${clientName}`);
-    const clientData = await getClientData(clientName);
-
-    // 4. Генерация конфигурации
-    console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
-    const config = generateConfig(clientData);
-
-    if (!config) {
-      throw new Error('Не удалось сгенерировать конфигурацию');
+    // 3. Verify that essential data is available from the creation step
+    if (!createdClientData || !createdClientData.privateKey || !createdClientData.address || !createdClientData.serverPublicKey) {
+        console.error('❌ Data from client creation is incomplete:', createdClientData);
+        throw new Error('Client creation response did not contain all necessary keys (privateKey, address, or serverPublicKey).');
     }
 
-    console.log('✅ Конфигурация успешно сгенерирована');
+    // 4. Generate configuration using the data obtained directly from creation
+    console.log(`⚙️ Generating config for: ${clientName}`);
+    const config = generateConfig(createdClientData); // Use data from createClient
+
+    if (!config) {
+      throw new Error('Failed to generate configuration');
+    }
+
+    console.log('✅ Configuration successfully generated');
     return config;
   } catch (error) {
-    console.error('🔥 Критическая ошибка:', {
+    console.error('🔥 Critical error:', {
       message: error.message,
       stack: error.stack
     });
-    throw new Error(`Не удалось создать VPN-клиента: ${error.message}`);
+    throw new Error(`Failed to create VPN client: ${error.message}`);
   }
 };
