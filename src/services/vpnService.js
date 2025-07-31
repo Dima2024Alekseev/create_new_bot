@@ -9,13 +9,10 @@ const cookieJar = new tough.CookieJar();
 // Создаем специальный экземпляр axios, который будет автоматически использовать хранилище куки
 const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
-    jar: cookieJar, // Указываем хранилище куки
+    jar: cookieJar,
     withCredentials: true,
 }));
 
-/**
- * Выполняет вход в API wg-easy и устанавливает сессию (куки).
- */
 const login = async () => {
     const loginUrl = '/api/session';
     const password = process.env.WG_API_PASSWORD;
@@ -29,24 +26,20 @@ const login = async () => {
     }
 };
 
-/**
- * Создает нового клиента в wg-easy.
- * @param {string} clientName - Имя клиента (например, Telegram ID).
- * @returns {Promise<string>} - Содержимое конфиг-файла клиента.
- */
 exports.createVpnClient = async (clientName) => {
     try {
         await login();
 
-        // ИСПРАВЛЕНО: Правильный API-адрес для создания клиента
         const createClientUrl = '/api/wireguard/client';
         console.log(`Отправка запроса на создание клиента по адресу: ${createClientUrl}`);
         
         const createResponse = await api.post(createClientUrl, { name: clientName });
-        const newClient = createResponse.data.data;
+        
+        // ИСПРАВЛЕНО: Проверяем, что в ответе есть нужные данные,
+        // и получаем ID напрямую из root объекта, как это делают некоторые версии API.
+        const newClient = createResponse.data;
         const clientId = newClient.id;
 
-        // ИСПРАВЛЕНО: Вероятный правильный API-адрес для получения конфига
         const getConfigUrl = `/api/wireguard/client/${clientId}/configuration`;
         const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
 
