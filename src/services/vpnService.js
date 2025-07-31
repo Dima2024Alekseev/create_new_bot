@@ -17,7 +17,6 @@ const api = wrapper(axios.create({
  * Выполняет вход в API wg-easy и устанавливает сессию (куки).
  */
 const login = async () => {
-    // API-адрес для входа
     const loginUrl = '/api/session';
     const password = process.env.WG_API_PASSWORD;
 
@@ -37,19 +36,18 @@ const login = async () => {
  */
 exports.createVpnClient = async (clientName) => {
     try {
-        // Шаг 1: Убедимся, что у нас есть активная сессия.
         await login();
 
-        // Шаг 2: Создаем клиента, используя API-адрес, который чаще всего работает
-        const createClientUrl = '/api/v1/users';
+        // ИСПРАВЛЕНО: Правильный API-адрес для создания клиента
+        const createClientUrl = '/api/wireguard/client';
         console.log(`Отправка запроса на создание клиента по адресу: ${createClientUrl}`);
         
         const createResponse = await api.post(createClientUrl, { name: clientName });
-        const newClient = createResponse.data.data; // Здесь может быть разный путь в зависимости от версии
+        const newClient = createResponse.data.data;
         const clientId = newClient.id;
 
-        // Шаг 3: Получаем конфиг, используя id нового клиента
-        const getConfigUrl = `/api/clients/${clientId}/configuration`;
+        // ИСПРАВЛЕНО: Вероятный правильный API-адрес для получения конфига
+        const getConfigUrl = `/api/wireguard/client/${clientId}/configuration`;
         const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
 
         return configResponse.data;
