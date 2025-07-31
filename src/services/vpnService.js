@@ -5,6 +5,8 @@ const { execSync } = require('child_process');
 const API_CONFIG = {
   BASE_URL: 'http://37.233.85.212:51821',
   PASSWORD: process.env.WG_API_PASSWORD,
+  // Вносим публичный ключ сервера в конфигурацию
+  SERVER_PUBLIC_KEY: '+VmjO9mBKNMW7G7sdn6Haqxzx2YXgi592/LfepbRLDU=', 
   TIMEOUT: 15000
 };
 
@@ -112,31 +114,13 @@ async function getClientData(clientName) {
 }
 
 /**
- * Получает публичный ключ сервера.
- * Этот endpoint - предположение, его нужно уточнить.
- * @returns {Promise<string>} Публичный ключ сервера.
- */
-async function getServerPublicKey() {
-    try {
-        const response = await api.get('/api/wireguard/server/configuration');
-        // Предполагаем, что API возвращает объект с публичным ключом сервера
-        return response.data.publicKey; 
-    } catch (error) {
-        console.error('❌ Ошибка получения публичного ключа сервера:', error.message);
-        throw new Error('Не удалось получить публичный ключ сервера.');
-    }
-}
-
-
-/**
  * Генерирует конфигурационный файл WireGuard для клиента.
  * @param {string} privateKey Приватный ключ клиента.
  * @param {object} clientData Данные клиента, полученные из API.
- * @param {string} serverPublicKey Публичный ключ сервера.
  * @returns {string} Строка конфигурационного файла.
  */
-function generateConfig(privateKey, clientData, serverPublicKey) {
-  if (!privateKey || !clientData.address || !serverPublicKey) {
+function generateConfig(privateKey, clientData) {
+  if (!privateKey || !clientData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
   }
 
@@ -146,7 +130,7 @@ Address = ${clientData.address}/32
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${serverPublicKey}
+PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
@@ -174,13 +158,9 @@ exports.createVpnClient = async (clientName) => {
     console.log(`🔍 Получаем данные клиента: ${clientName}`);
     const clientData = await getClientData(clientName);
 
-    // 5. Получаем публичный ключ сервера
-    console.log('🌐 Получаем публичный ключ сервера.');
-    const serverPublicKey = await getServerPublicKey();
-
-    // 6. Генерируем конфигурационный файл, используя локальный приватный ключ и данные от API
+    // 5. Генерируем конфигурационный файл, используя локальный приватный ключ и данные от API
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
-    const config = generateConfig(privateKey, clientData, serverPublicKey);
+    const config = generateConfig(privateKey, clientData);
 
     console.log('✅ Конфигурация успешно сгенерирована.');
     return config;
