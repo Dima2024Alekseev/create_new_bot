@@ -66,38 +66,31 @@ async function createClient(clientName) {
   }
 }
 
-async function getConfigFromAPI(clientName) {
-  const endpoint = `/api/wireguard/client/${clientName}/configuration`;
-
-  const maxRetries = 5;
-  const retryDelay = 2000; // 2 секунды
-
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await api.get(endpoint, {
-        responseType: 'text'
-      });
-
-      if (response.data.includes('[Interface]')) {
-        return response.data;
-      }
-      throw new Error('Неверный формат конфигурации');
-    } catch (error) {
-      if (error.response?.status === 404 && i < maxRetries - 1) {
-        console.log(`⚠️ Попытка ${i + 1}/${maxRetries}: Конфиг не найден (404), повторяю через ${retryDelay / 1000} сек.`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-      } else {
-        console.error(`❌ Не удалось получить конфиг через API для эндпоинта ${endpoint}:`, {
-          status: error.response?.status,
-          data: error.response?.data,
-          message: error.message
-        });
-        return null;
-      }
+async function getClientData(clientName) {
+  try {
+    const response = await api.get('/api/wireguard/client');
+    const client = response.data.find(c => c.name === clientName);
+    if (!client) {
+      throw new Error('Клиент не найден');
     }
+    return client;
+  } catch (error) {
+    console.error('❌ Ошибка получения данных клиента:', error.message);
+    throw error;
   }
+}
 
-  return null;
+function generateConfig(clientData) {
+  return `[Interface]
+PrivateKey = ${clientData.privateKey}
+Address = ${clientData.address}
+DNS = 1.1.1.1
+
+[Peer]
+PublicKey = ${clientData.serverPublicKey}
+Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25`;
 }
 
 exports.createVpnClient = async (clientName) => {
@@ -109,14 +102,19 @@ exports.createVpnClient = async (clientName) => {
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
 
-    // 3. Получение конфигурации с повторными попытками
-    const config = await getConfigFromAPI(clientName);
+    // 3. Получение данных клиента
+    console.log(`🔍 Получаем данные клиента: ${clientName}`);
+    const clientData = await getClientData(clientName);
+
+    // 4. Генерация конфигурации
+    console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
+    const config = generateConfig(clientData);
 
     if (!config) {
-      throw new Error('Не удалось получить конфигурацию клиента через API');
+      throw new Error('Не удалось сгенерировать конфигурацию');
     }
 
-    console.log('✅ Конфигурация успешно получена');
+    console.log('✅ Конфигурация успешно сгенерирована');
     return config;
   } catch (error) {
     console.error('🔥 Критическая ошибка:', {
