@@ -111,8 +111,8 @@ exports.handleApprove = async (ctx) => {
 
         if (updatedUser.subscriptionCount === 1) {
             try {
-                // ИЗМЕНЕНО: Использование username для имени клиента, если он есть
-                const clientName = updatedUser.username ? `telegram_${updatedUser.username}` : `telegram_${userId}`;
+                // ИЗМЕНЕНО: Использование только username, если он есть. Иначе - 'telegram_userId'.
+                const clientName = updatedUser.username ? updatedUser.username : `telegram_${userId}`;
                 const configContent = await createVpnClient(clientName);
 
                 await ctx.telegram.sendMessage(
