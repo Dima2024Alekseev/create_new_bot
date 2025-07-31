@@ -1,7 +1,8 @@
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
-const { formatDate, escapeMarkdown, formatDuration } = require('../utils/helpers');
+const { formatDate, escapeMarkdown } = require('../utils/helpers');
+const { createVpnClient } = require('../services/vpnService');
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -11,13 +12,16 @@ const { formatDate, escapeMarkdown, formatDuration } = require('../utils/helpers
 exports.handlePhoto = async (ctx) => {
     const { id, first_name, username } = ctx.from;
 
+    // Если это админ, и он случайно отправил фото, игнорируем его.
     if (id === parseInt(process.env.ADMIN_ID)) {
         return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
 
+    // Получаем ID последнего (самого большого) фото из массива
     const photo = ctx.message.photo.pop();
 
     try {
+        // Находим или создаем пользователя и обновляем информацию о платеже
         await User.findOneAndUpdate(
             { userId: id },
             {
@@ -31,6 +35,7 @@ exports.handlePhoto = async (ctx) => {
             { upsert: true, new: true }
         );
 
+        // Подготавливаем кнопки для администратора
         const keyboard = Markup.inlineKeyboard([
             Markup.button.callback('✅ Принять', `approve_${id}`),
             Markup.button.callback('❌ Отклонить', `reject_${id}`)
@@ -53,8 +58,8 @@ exports.handlePhoto = async (ctx) => {
             photo.file_id,
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
-                    `Имя: ${userDisplay}\n` +
-                    `ID: ${id}`,
+                         `Имя: ${userDisplay}\n` +
+                         `ID: ${id}`,
                 parse_mode: 'Markdown',
                 ...keyboard
             }
@@ -104,36 +109,54 @@ exports.handleApprove = async (ctx) => {
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
-        try {
-            let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*`;
+        if (updatedUser.subscriptionCount === 1) {
+            try {
+                const clientName = `telegram_${userId}`;
+                const configContent = await createVpnClient(clientName);
 
-            const keyboardButtons = [];
+                await ctx.telegram.sendMessage(
+                    userId,
+                    `🎉 *Платёж подтверждён!* 🎉\n\n` +
+                    `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n` +
+                    `📁 Ваш файл конфигурации VPN:\n\n` +
+                    `После загрузки файла, пожалуйста, нажмите кнопку ниже, чтобы получить инструкцию:`,
+                    {
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    Markup.button.callback('▶️ Получить инструкцию по настройке', `send_vpn_info_${userId}`),
+                                ]
+                            ]
+                        }
+                    }
+                );
 
-            if (updatedUser.subscriptionCount === 1 && !updatedUser.vpnConfigured) {
-                keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${userId}` }]);
+                await ctx.telegram.sendDocument(
+                    userId,
+                    { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+                );
+
+            } catch (vpnError) {
+                console.error(`Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
+                await ctx.telegram.sendMessage(
+                    userId,
+                    `⚠️ *Произошла ошибка при автоматической генерации файла конфигурации VPN.*` +
+                    `\nПожалуйста, свяжитесь с администратором.`
+                );
+                await ctx.reply(
+                    `⚠️ Произошла ошибка при создании VPN конфига для пользователя ${userId}. ` +
+                    `Сообщи ему, что файл будет отправлен вручную.`
+                );
             }
-
-            keyboardButtons.push(
-                [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
-                [{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }],
-                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-            );
-
-            const inlineKeyboard = Markup.inlineKeyboard(keyboardButtons);
-
+        } else {
+            let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
+                         `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
                 userId,
                 message,
-                {
-                    parse_mode: 'Markdown',
-                    reply_markup: inlineKeyboard.reply_markup
-                }
+                { parse_mode: 'Markdown' }
             );
-        } catch (e) {
-            console.error(`[handleApprove] Ошибка отправки уведомления пользователю ${userId}:`, e.message);
-            await ctx.reply(`⚠️ Ошибка отправки уведомления пользователю ${userId}. Возможно, бот был заблокирован.`);
         }
 
     } catch (error) {
