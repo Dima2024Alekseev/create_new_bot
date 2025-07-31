@@ -67,37 +67,37 @@ async function createClient(clientName) {
 }
 
 async function getConfigFromAPI(clientName) {
-  try {
-    const response = await api.get(`/api/wireguard/client/${clientName}/configuration`, {
-      responseType: 'text'
-    });
-    
-    if (response.data.includes('[Interface]')) {
-      return response.data;
+  const maxRetries = 5;
+  const retryDelay = 2000; // 2 секунды
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await api.get(`/api/wireguard/client/${clientName}/configuration`, {
+        responseType: 'text'
+      });
+      
+      if (response.data.includes('[Interface]')) {
+        return response.data;
+      }
+      throw new Error('Неверный формат конфигурации');
+    } catch (error) {
+      if (error.response?.status === 404 && i < maxRetries - 1) {
+        console.log(`⚠️ Попытка ${i + 1}/${maxRetries}: Конфиг не найден (404), повторяю через ${retryDelay / 1000} сек.`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        console.error('❌ Не удалось получить конфиг через API:', error.message);
+        return null;
+      }
     }
-    throw new Error('Неверный формат конфигурации');
-  } catch (error) {
-    console.error('⚠️ Не удалось получить конфиг через API:', error.message);
-    return null;
   }
+  return null;
 }
 
+// УДАЛЯЕМ эту функцию, так как вы не хотите использовать Docker.
+/*
 async function getConfigFromDocker(clientName) {
-  try {
-    const config = execSync(
-      `docker exec wg.easy wg showconf ${clientName}`,
-      { timeout: 5000 }
-    ).toString();
-    
-    if (config.includes('[Interface]')) {
-      return config;
-    }
-    throw new Error('Неверный формат конфигурации');
-  } catch (error) {
-    console.error('⚠️ Не удалось получить конфиг через docker:', error.message);
-    return null;
-  }
+  // ... код, который вы не хотите использовать
 }
+*/
 
 exports.createVpnClient = async (clientName) => {
   try {
@@ -108,16 +108,11 @@ exports.createVpnClient = async (clientName) => {
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
     
-    // 3. Добавляем задержку, чтобы дать время на генерацию конфигурации
-    console.log('⏱️ Ждем 2 секунды, чтобы конфигурация сгенерировалась...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // 4. Получение конфигурации (пробуем разные методы)
-    const config = await getConfigFromAPI(clientName) || 
-                   await getConfigFromDocker(clientName);
+    // 3. Получение конфигурации с повторными попытками
+    const config = await getConfigFromAPI(clientName);
     
     if (!config) {
-      throw new Error('Все методы получения конфигурации не сработали');
+      throw new Error('Не удалось получить конфигурацию клиента через API');
     }
     
     console.log('✅ Конфигурация успешно получена');
