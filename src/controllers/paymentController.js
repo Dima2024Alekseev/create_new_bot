@@ -1,9 +1,7 @@
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
-// Убедитесь, что escapeMarkdown импортирован правильно вместе с formatDate
-const { formatDate, escapeMarkdown } = require('../utils/helpers');
-const { handleStart } = require('./userController'); // Импортируем handleStart из userController
+const { formatDate, escapeMarkdown, formatDuration } = require('../utils/helpers');
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -13,48 +11,39 @@ const { handleStart } = require('./userController'); // Импортируем h
 exports.handlePhoto = async (ctx) => {
     const { id, first_name, username } = ctx.from;
 
-    // Если это админ, и он случайно отправил фото, игнорируем его.
     if (id === parseInt(process.env.ADMIN_ID)) {
         return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
 
-    // Получаем ID последнего (самого большого) фото из массива
     const photo = ctx.message.photo.pop();
 
     try {
-        // Находим или создаем пользователя и обновляем информацию о платеже
         await User.findOneAndUpdate(
             { userId: id },
             {
                 userId: id,
-                username: username || first_name, // Сохраняем username или first_name для пользователя
+                username: username || first_name,
                 firstName: first_name,
                 paymentPhotoId: photo.file_id,
-                paymentPhotoDate: new Date(), // Добавлено: сохраняет дату отправки скриншота
-                status: 'pending' // Статус ожидания проверки
+                paymentPhotoDate: new Date(),
+                status: 'pending'
             },
-            { upsert: true, new: true } // Создать, если не существует; вернуть обновленный документ
+            { upsert: true, new: true }
         );
 
-        // Подготавливаем кнопки для администратора
         const keyboard = Markup.inlineKeyboard([
             Markup.button.callback('✅ Принять', `approve_${id}`),
             Markup.button.callback('❌ Отклонить', `reject_${id}`)
         ]);
 
-        // НОВОЕ: Более надёжное формирование строки с именем пользователя для отображения
         let userDisplay = '';
-        // Всегда экранируем first_name (если есть, иначе используем заглушку)
         const safeFirstName = escapeMarkdown(first_name || 'Не указано');
 
         if (username) {
-            // Если username есть, используем его с @ и экранируем
             userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
         } else {
-            // Если username нет, используем только safeFirstName и явно указываем отсутствие username
             userDisplay = `${safeFirstName} (без username)`;
         }
-        // Если по какой-то причине first_name тоже пустой (редко, но возможно)
         if (!first_name && !username) {
             userDisplay = `Неизвестный пользователь`;
         }
@@ -64,10 +53,10 @@ exports.handlePhoto = async (ctx) => {
             photo.file_id,
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
-                    `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
+                    `Имя: ${userDisplay}\n` +
                     `ID: ${id}`,
-                parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в подписи
-                ...keyboard // Разворачиваем кнопки
+                parse_mode: 'Markdown',
+                ...keyboard
             }
         );
 
@@ -94,15 +83,12 @@ exports.handleApprove = async (ctx) => {
         const user = await User.findOne({ userId });
 
         let newExpireDate = new Date();
-
         if (user && user.expireDate && user.expireDate > new Date()) {
             newExpireDate = new Date(user.expireDate);
         }
-
         newExpireDate.setMonth(newExpireDate.getMonth() + 1);
         newExpireDate.setHours(23, 59, 59, 999);
 
-        // 1. Сначала обновляем базу данных
         const updatedUser = await User.findOneAndUpdate(
             { userId },
             {
@@ -118,42 +104,37 @@ exports.handleApprove = async (ctx) => {
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
-        // 2. Затем пытаемся отправить сообщение пользователю,
-        // оборачивая это в отдельный try/catch
         try {
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
+                `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*`;
 
-            let keyboard = Markup.inlineKeyboard([]);
+            const keyboardButtons = [];
 
-            if (updatedUser.subscriptionCount === 1) {
-                message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
-                keyboard = Markup.inlineKeyboard([
-                    [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
-                ]);
-            } else {
-                message += `Ваша подписка успешно продлена.`;
+            if (updatedUser.subscriptionCount === 1 && !updatedUser.vpnConfigured) {
+                keyboardButtons.push([{ text: '📁 Получить файл и инструкцию', callback_data: `send_vpn_info_${userId}` }]);
             }
+
+            keyboardButtons.push(
+                [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
+                [{ text: '🗓 Продлить подписку', callback_data: 'extend_subscription' }],
+                [{ text: '🚫 Отменить подписку', callback_data: 'cancel_subscription_confirm' }],
+                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
+            );
+
+            const inlineKeyboard = Markup.inlineKeyboard(keyboardButtons);
 
             await ctx.telegram.sendMessage(
                 userId,
                 message,
-                keyboard.reply_markup ? { parse_mode: 'Markdown', ...keyboard } : { parse_mode: 'Markdown' }
+                {
+                    parse_mode: 'Markdown',
+                    reply_markup: inlineKeyboard.reply_markup
+                }
             );
         } catch (e) {
             console.error(`[handleApprove] Ошибка отправки уведомления пользователю ${userId}:`, e.message);
-            // Если бот не смог отправить сообщение пользователю, уведомляем об этом админа.
             await ctx.reply(`⚠️ Ошибка отправки уведомления пользователю ${userId}. Возможно, бот был заблокирован.`);
         }
-
-        // 3. Обновляем меню для пользователя
-        // Важно! Если пользователь заблокировал бота, эта функция также может вызвать ошибку.
-        // В данном случае мы уже поймали её выше, но это стоит иметь в виду.
-        const tempCtx = {
-            ...ctx,
-            from: { id: userId, first_name: updatedUser.firstName, username: updatedUser.username }
-        };
-        await handleStart(tempCtx);
 
     } catch (error) {
         console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
