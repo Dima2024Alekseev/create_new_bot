@@ -44,18 +44,18 @@ exports.handlePhoto = async (ctx) => {
     // НОВОЕ: Более надёжное формирование строки с именем пользователя для отображения
     let userDisplay = '';
     // Всегда экранируем first_name (если есть, иначе используем заглушку)
-    const safeFirstName = escapeMarkdown(first_name || 'Не указано'); 
-    
+    const safeFirstName = escapeMarkdown(first_name || 'Не указано');
+
     if (username) {
-        // Если username есть, используем его с @ и экранируем
-        userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
+      // Если username есть, используем его с @ и экранируем
+      userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
     } else {
-        // Если username нет, используем только safeFirstName и явно указываем отсутствие username
-        userDisplay = `${safeFirstName} (без username)`; 
+      // Если username нет, используем только safeFirstName и явно указываем отсутствие username
+      userDisplay = `${safeFirstName} (без username)`;
     }
     // Если по какой-то причине first_name тоже пустой (редко, но возможно)
     if (!first_name && !username) {
-        userDisplay = `Неизвестный пользователь`;
+      userDisplay = `Неизвестный пользователь`;
     }
 
     await ctx.telegram.sendPhoto(
@@ -63,8 +63,8 @@ exports.handlePhoto = async (ctx) => {
       photo.file_id,
       {
         caption: `📸 *Новый платёж от пользователя:*\n` +
-                 `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
-                 `ID: ${id}`,
+          `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
+          `ID: ${id}`,
         parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в подписи
         ...keyboard // Разворачиваем кнопки
       }
@@ -114,7 +114,7 @@ exports.handleApprove = async (ctx) => {
     );
 
     let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                  `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
+      `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
 
     let keyboard = Markup.inlineKeyboard([]);
 

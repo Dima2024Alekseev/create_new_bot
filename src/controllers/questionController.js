@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const Question = require('../models/Question');
 // ИЗМЕНЕНО: Импорт checkAdmin из нового модуля utils/auth
-const { checkAdmin } = require('../utils/auth'); 
+const { checkAdmin } = require('../utils/auth');
 const { formatDate } = require('../utils/helpers');
 
 /**
@@ -53,7 +53,7 @@ ID пользователя: ${ctx.from.id}`,
  */
 exports.handleAnswer = async (ctx) => {
   // ИЗМЕНЕНО: Использование checkAdmin из импорта
-  if (!checkAdmin(ctx)) { 
+  if (!checkAdmin(ctx)) {
     return ctx.reply('🚫 Только для админа.');
   }
 
@@ -95,20 +95,20 @@ exports.handleAnswer = async (ctx) => {
  */
 exports.listQuestions = async (ctx) => {
   // ИЗМЕНЕНО: Использование checkAdmin из импорта
-  if (!checkAdmin(ctx)) { 
+  if (!checkAdmin(ctx)) {
     if (ctx.callbackQuery) {
-        await ctx.answerCbQuery('🚫 Только для админа.');
+      await ctx.answerCbQuery('🚫 Только для админа.');
     }
     return ctx.reply('🚫 Только для админа.');
   }
 
   if (ctx.callbackQuery) {
-      await ctx.answerCbQuery('Загружаю вопросы...');
+    await ctx.answerCbQuery('Загружаю вопросы...');
   }
 
   try {
     const questions = await Question.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(10);
-    
+
     if (!questions.length) {
       return ctx.reply('ℹ️ Нет ожидающих вопросов.');
     }

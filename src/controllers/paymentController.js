@@ -58,8 +58,8 @@ exports.handlePhoto = async (ctx) => {
             photo.file_id,
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
-                         `Имя: ${userDisplay}\n` +
-                         `ID: ${id}`,
+                    `Имя: ${userDisplay}\n` +
+                    `ID: ${id}`,
                 parse_mode: 'Markdown',
                 ...keyboard
             }
@@ -151,7 +151,7 @@ exports.handleApprove = async (ctx) => {
             }
         } else {
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                         `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
+                `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
                 userId,
                 message,

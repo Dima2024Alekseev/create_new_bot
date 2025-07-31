@@ -1,5 +1,5 @@
 const User = require('../models/User');
-const Question = require('../models/Question'); 
+const Question = require('../models/Question');
 const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 // ИЗМЕНЕНО: Импорт checkAdmin из нового модуля utils/auth
@@ -13,7 +13,7 @@ const { checkAdmin } = require('../utils/auth');
  */
 exports.checkPayments = async (ctx) => {
     // ИЗМЕНЕНО: Использование checkAdmin из импорта
-    if (!checkAdmin(ctx)) { 
+    if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
 
@@ -27,15 +27,15 @@ exports.checkPayments = async (ctx) => {
 
         for (const user of pendingUsers) {
             let message = `📸 *Заявка на оплату от пользователя:*\n` +
-                          `ID: ${user.userId}\n` +
-                          `Имя: ${user.firstName || 'Не указано'}\n` +
-                          `Username: ${user.username ? `@${user.username}` : 'Не указан'}\n` +
-                          `Дата подачи: ${user.paymentPhotoDate ? formatDate(user.paymentPhotoDate) : 'Не указана'}`; 
-            
-            if (user.paymentPhotoId) { 
+                `ID: ${user.userId}\n` +
+                `Имя: ${user.firstName || 'Не указано'}\n` +
+                `Username: ${user.username ? `@${user.username}` : 'Не указан'}\n` +
+                `Дата подачи: ${user.paymentPhotoDate ? formatDate(user.paymentPhotoDate) : 'Не указана'}`;
+
+            if (user.paymentPhotoId) {
                 await ctx.telegram.sendPhoto(
-                    ctx.chat.id, 
-                    user.paymentPhotoId, 
+                    ctx.chat.id,
+                    user.paymentPhotoId,
                     {
                         caption: message,
                         parse_mode: 'Markdown',
@@ -53,7 +53,7 @@ exports.checkPayments = async (ctx) => {
                 await ctx.replyWithMarkdown(
                     `⚠️ *Заявка от пользователя ${user.firstName || user.username || 'Без имени'} (ID: ${user.userId}) без скриншота!*\n` +
                     `Возможно, пользователь не отправил фото или произошла ошибка сохранения.\n\n` +
-                    `${message}`, 
+                    `${message}`,
                     { parse_mode: 'Markdown' }
                 );
             }
@@ -75,7 +75,7 @@ exports.checkPayments = async (ctx) => {
  */
 exports.stats = async (ctx) => {
     // ИЗМЕНЕНО: Использование checkAdmin из импорта
-    if (!checkAdmin(ctx)) { 
+    if (!checkAdmin(ctx)) {
         if (ctx.callbackQuery) {
             return ctx.answerCbQuery('🚫 Только для админа');
         }
@@ -92,8 +92,8 @@ exports.stats = async (ctx) => {
         });
 
         const latestSubscription = await User.findOne({ status: 'active', expireDate: { $exists: true } })
-                                                 .sort({ expireDate: -1 })
-                                                 .limit(1);
+            .sort({ expireDate: -1 })
+            .limit(1);
 
         let latestExpireDate = 'N/A';
         if (latestSubscription && latestSubscription.expireDate) {
@@ -101,13 +101,13 @@ exports.stats = async (ctx) => {
         }
 
         let message = `📊 *Статистика Бота*\n\n` +
-                      `👥 Всего пользователей: *${totalUsers}*\n` +
-                      `✅ Активных подписок: *${activeUsers}*\n` +
-                      `⏳ Ожидают проверки оплаты: *${pendingPayments}*\n` +
-                      `❓ Неотвеченных вопросов: *${pendingQuestions}*\n` +
-                      `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
-                      `🗓 Самая поздняя подписка до: *${latestExpireDate}*\n` +
-                      `_Обновлено: ${new Date().toLocaleTimeString('ru-RU')}_`; 
+            `👥 Всего пользователей: *${totalUsers}*\n` +
+            `✅ Активных подписок: *${activeUsers}*\n` +
+            `⏳ Ожидают проверки оплаты: *${pendingPayments}*\n` +
+            `❓ Неотвеченных вопросов: *${pendingQuestions}*\n` +
+            `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
+            `🗓 Самая поздняя подписка до: *${latestExpireDate}*\n` +
+            `_Обновлено: ${new Date().toLocaleTimeString('ru-RU')}_`;
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
@@ -116,7 +116,7 @@ exports.stats = async (ctx) => {
                 ]
             }
         });
-        
+
         if (ctx.callbackQuery) {
             await ctx.answerCbQuery('Статистика обновлена!');
         }
@@ -124,8 +124,8 @@ exports.stats = async (ctx) => {
     } catch (error) {
         console.error('Ошибка при получении статистики:', error);
         if (ctx.callbackQuery) {
-             await ctx.reply('⚠️ Произошла ошибка при обновлении статистики.');
-             await ctx.answerCbQuery('Ошибка!');
+            await ctx.reply('⚠️ Произошла ошибка при обновлении статистики.');
+            await ctx.answerCbQuery('Ошибка!');
         } else {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
         }
