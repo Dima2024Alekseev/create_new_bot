@@ -1,133 +1,128 @@
 const axios = require('axios');
-const tough = require('tough-cookie');
-const { wrapper } = require('axios-cookiejar-support');
+const { execSync } = require('child_process');
 
-const cookieJar = new tough.CookieJar();
-const api = wrapper(axios.create({
-    baseURL: process.env.WG_API_URL,
-    jar: cookieJar,
-    withCredentials: true,
-    timeout: 10000
-}));
-
-// Добавляем интерцепторы для отладки
-api.interceptors.request.use(config => {
-    console.log(`➡️ Отправка запроса: ${config.method?.toUpperCase()} ${config.url}`);
-    return config;
-});
-
-api.interceptors.response.use(response => {
-    console.log(`⬅️ Получен ответ: ${response.status} ${response.config.url}`);
-    return response;
-}, error => {
-    console.error(`⚠️ Ошибка запроса: ${error.config?.url} | ${error.response?.status}`);
-    return Promise.reject(error);
-});
-
-const login = async () => {
-    try {
-        const response = await api.post('/api/session', {
-            password: process.env.WG_API_PASSWORD
-        });
-        console.log('✅ Авторизация успешна');
-        return response.headers['set-cookie'];
-    } catch (error) {
-        console.error('❌ Ошибка авторизации:', {
-            status: error.response?.status,
-            data: error.response?.data,
-            headers: error.response?.headers
-        });
-        throw error;
-    }
+// Конфигурация API
+const API_CONFIG = {
+  BASE_URL: process.env.WG_API_URL || 'http://localhost:51821',
+  PASSWORD: process.env.WG_API_PASSWORD,
+  TIMEOUT: 15000
 };
+
+// Глобальная сессия
+let sessionCookie = null;
+
+const api = axios.create({
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.TIMEOUT,
+  headers: {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  }
+});
+
+// Интерцептор для обработки кук
+api.interceptors.request.use(config => {
+  if (sessionCookie) {
+    config.headers.Cookie = sessionCookie;
+  }
+  return config;
+});
+
+async function login() {
+  try {
+    const response = await api.post('/api/session', {
+      password: API_CONFIG.PASSWORD
+    });
+    
+    sessionCookie = response.headers['set-cookie']?.toString();
+    if (!sessionCookie) {
+      throw new Error('Не получены куки авторизации');
+    }
+    
+    console.log('🔑 Авторизация успешна');
+    return true;
+  } catch (error) {
+    console.error('❌ Ошибка авторизации:', {
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    throw new Error('Ошибка входа в систему');
+  }
+}
+
+async function createClient(clientName) {
+  try {
+    const response = await api.post('/api/wireguard/client', {
+      name: clientName,
+      allowedIPs: '10.8.0.0/24'
+    });
+    return response.data;
+  } catch (error) {
+    console.error('❌ Ошибка создания клиента:', {
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    throw error;
+  }
+}
+
+async function getConfigFromAPI(clientName) {
+  try {
+    const response = await api.get(`/api/wireguard/client/${clientName}/configuration`, {
+      responseType: 'text'
+    });
+    
+    if (response.data.includes('[Interface]')) {
+      return response.data;
+    }
+    throw new Error('Неверный формат конфигурации');
+  } catch (error) {
+    console.error('⚠️ Не удалось получить конфиг через API:', error.message);
+    return null;
+  }
+}
+
+async function getConfigFromDocker(clientName) {
+  try {
+    const config = execSync(
+      `docker exec wg.easy wg showconf ${clientName}`,
+      { timeout: 5000 }
+    ).toString();
+    
+    if (config.includes('[Interface]')) {
+      return config;
+    }
+    throw new Error('Неверный формат конфигурации');
+  } catch (error) {
+    console.error('⚠️ Не удалось получить конфиг через docker:', error.message);
+    return null;
+  }
+}
 
 exports.createVpnClient = async (clientName) => {
-    try {
-        // 1. Авторизация
-        const cookies = await login();
-        
-        // 2. Создание клиента
-        console.log('⌛ Создание клиента:', clientName);
-        const createResponse = await api.post('/api/wireguard/client', {
-            name: clientName,
-            allowedIPs: '10.8.0.0/24'
-        });
-        
-        // 3. Проверка создания клиента
-        console.log('🔍 Проверка списка клиентов');
-        const clientsResponse = await api.get('/api/wireguard/clients');
-        const clientExists = clientsResponse.data.some(c => c.name === clientName);
-        
-        if (!clientExists) {
-            throw new Error('Клиент не появился в списке после создания');
-        }
-
-        // 4. Получение конфигурации (3 попытки с задержкой)
-        let config;
-        for (let i = 0; i < 3; i++) {
-            try {
-                console.log(`🔄 Попытка ${i+1} получения конфигурации`);
-                const response = await api.get(
-                    `/api/wireguard/client/${clientName}/configuration`,
-                    { responseType: 'text' }
-                );
-                
-                if (response.data.includes('[Interface]')) {
-                    config = response.data;
-                    break;
-                }
-            } catch (error) {
-                if (i === 2) throw error;
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-
-        if (!config) {
-            throw new Error('Не удалось получить валидную конфигурацию');
-        }
-
-        console.log('✅ Конфигурация успешно получена');
-        return config;
-
-    } catch (error) {
-        console.error('🔥 Критическая ошибка:', {
-            message: error.message,
-            stack: error.stack,
-            response: error.response?.data
-        });
-        
-        // Попробуем альтернативный метод через веб-интерфейс
-        try {
-            console.log('🔄 Попытка получения конфигурации через веб-интерфейс');
-            const config = await getConfigViaWebInterface(clientName);
-            return config;
-        } catch (fallbackError) {
-            throw new Error(`Ошибка создания VPN-клиента: ${error.message} | Fallback также не сработал: ${fallbackError.message}`);
-        }
+  try {
+    // 1. Авторизация
+    await login();
+    
+    // 2. Создание клиента
+    console.log(`⌛ Создаем клиента: ${clientName}`);
+    await createClient(clientName);
+    
+    // 3. Получение конфигурации (пробуем разные методы)
+    const config = await getConfigFromAPI(clientName) || 
+                  await getConfigFromDocker(clientName);
+    
+    if (!config) {
+      throw new Error('Все методы получения конфигурации не сработали');
     }
+    
+    console.log('✅ Конфигурация успешно получена');
+    return config;
+  } catch (error) {
+    console.error('🔥 Критическая ошибка:', {
+      message: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Не удалось создать VPN-клиента: ${error.message}`);
+  }
 };
-
-// Альтернативный метод через веб-интерфейс
-async function getConfigViaWebInterface(clientName) {
-    const puppeteer = require('puppeteer');
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-
-    try {
-        await page.goto(`${process.env.WG_API_URL}/login`, { waitUntil: 'networkidle2' });
-        await page.type('input[name="password"]', process.env.WG_API_PASSWORD);
-        await page.click('button[type="submit"]');
-        await page.waitForNavigation();
-        
-        await page.goto(`${process.env.WG_API_URL}/client/${clientName}/download`);
-        const config = await page.evaluate(() => document.body.innerText);
-        
-        if (!config.includes('[Interface]')) {
-            throw new Error('Неверный формат конфигурации');
-        }
-        
-        return config;
-    } finally {
-        await browser.close();
-    }
-}
