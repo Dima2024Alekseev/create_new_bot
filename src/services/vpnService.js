@@ -5,8 +5,7 @@ const { execSync } = require('child_process');
 const API_CONFIG = {
   BASE_URL: 'http://37.233.85.212:51821',
   PASSWORD: process.env.WG_API_PASSWORD,
-  // Вносим публичный ключ сервера в конфигурацию
-  SERVER_PUBLIC_KEY: '+VmjO9mBKNMW7G7sdn6Haqxzx2YXgi592/LfepbRLDU=', 
+  SERVER_PUBLIC_KEY: '+VmjO9mBKNMW7G7sdn6Haqxzx2YXgi592/LfepbRLDU=',
   TIMEOUT: 15000
 };
 
@@ -22,7 +21,6 @@ const api = axios.create({
   }
 });
 
-// Интерцептор для обработки кук
 api.interceptors.request.use(config => {
   if (sessionCookie) {
     config.headers.Cookie = sessionCookie;
@@ -31,52 +29,39 @@ api.interceptors.request.use(config => {
 });
 
 /**
- * Генерирует пару ключей WireGuard (публичный и приватный) локально.
- * @returns {object} Объект с ключами: { privateKey, publicKey }
+ * Генерирует пару ключей WireGuard (публичный и приватный) и PresharedKey локально.
+ * @returns {object} Объект с ключами: { privateKey, publicKey, presharedKey }
  */
 function generateKeys() {
   try {
     const privateKey = execSync('wg genkey').toString().trim();
     const publicKey = execSync(`echo "${privateKey}" | wg pubkey`).toString().trim();
-    return { privateKey, publicKey };
+    const presharedKey = execSync('wg genpsk').toString().trim();
+    return { privateKey, publicKey, presharedKey };
   } catch (error) {
     console.error('❌ Ошибка генерации ключей:', error.message);
     throw new Error('Не удалось сгенерировать ключи WireGuard. Убедитесь, что `wireguard-tools` установлены.');
   }
 }
 
-/**
- * Осуществляет авторизацию в API.
- */
 async function login() {
+  // ... (остается без изменений)
   try {
     const response = await api.post('/api/session', {
       password: API_CONFIG.PASSWORD
     });
-
     sessionCookie = response.headers['set-cookie']?.toString();
-    if (!sessionCookie) {
-      throw new Error('Не получены куки авторизации');
-    }
-
+    if (!sessionCookie) throw new Error('Не получены куки авторизации');
     console.log('🔑 Авторизация успешна');
     return true;
   } catch (error) {
-    console.error('❌ Ошибка авторизации:', {
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    console.error('❌ Ошибка авторизации:', { status: error.response?.status, data: error.response?.data });
     throw new Error('Ошибка входа в систему');
   }
 }
 
-/**
- * Создает нового клиента через API, используя публичный ключ.
- * @param {string} clientName Имя клиента.
- * @param {string} publicKey Публичный ключ клиента.
- * @returns {Promise<object>} Данные ответа от API.
- */
 async function createClient(clientName, publicKey) {
+  // ... (остается без изменений)
   try {
     const response = await api.post('/api/wireguard/client', {
       name: clientName,
@@ -86,26 +71,17 @@ async function createClient(clientName, publicKey) {
     console.log(`✅ Клиент "${clientName}" создан успешно.`);
     return response.data;
   } catch (error) {
-    console.error('❌ Ошибка создания клиента:', {
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    console.error('❌ Ошибка создания клиента:', { status: error.response?.status, data: error.response?.data });
     throw error;
   }
 }
 
-/**
- * Получает данные конкретного клиента из API.
- * @param {string} clientName Имя клиента.
- * @returns {Promise<object>} Данные клиента.
- */
 async function getClientData(clientName) {
+  // ... (остается без изменений)
   try {
     const response = await api.get('/api/wireguard/client');
     const client = response.data.find(c => c.name === clientName);
-    if (!client) {
-      throw new Error(`Клиент с именем "${clientName}" не найден.`);
-    }
+    if (!client) throw new Error(`Клиент с именем "${clientName}" не найден.`);
     return client;
   } catch (error) {
     console.error('❌ Ошибка получения данных клиента:', error.message);
@@ -116,21 +92,23 @@ async function getClientData(clientName) {
 /**
  * Генерирует конфигурационный файл WireGuard для клиента.
  * @param {string} privateKey Приватный ключ клиента.
+ * @param {string} presharedKey Общий ключ (PresharedKey).
  * @param {object} clientData Данные клиента, полученные из API.
  * @returns {string} Строка конфигурационного файла.
  */
-function generateConfig(privateKey, clientData) {
-  if (!privateKey || !clientData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
+function generateConfig(privateKey, presharedKey, clientData) {
+  if (!privateKey || !presharedKey || !clientData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
   }
 
   return `[Interface]
 PrivateKey = ${privateKey}
-Address = ${clientData.address}/32
+Address = ${clientData.address}/24
 DNS = 1.1.1.1
 
 [Peer]
 PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
+PresharedKey = ${presharedKey}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
@@ -143,8 +121,8 @@ PersistentKeepalive = 25`;
  */
 exports.createVpnClient = async (clientName) => {
   try {
-    // 1. Генерируем пару ключей локально
-    const { privateKey, publicKey } = generateKeys();
+    // 1. Генерируем ключи локально, включая PresharedKey
+    const { privateKey, publicKey, presharedKey } = generateKeys();
     console.log('🔑 Ключи сгенерированы локально.');
 
     // 2. Авторизация
@@ -158,9 +136,9 @@ exports.createVpnClient = async (clientName) => {
     console.log(`🔍 Получаем данные клиента: ${clientName}`);
     const clientData = await getClientData(clientName);
 
-    // 5. Генерируем конфигурационный файл, используя локальный приватный ключ и данные от API
+    // 5. Генерируем конфигурационный файл, используя все необходимые ключи
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
-    const config = generateConfig(privateKey, clientData);
+    const config = generateConfig(privateKey, presharedKey, clientData);
 
     console.log('✅ Конфигурация успешно сгенерирована.');
     return config;
