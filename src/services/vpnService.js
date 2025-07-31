@@ -1,18 +1,16 @@
+// src/services/vpnService.js
 const axios = require('axios');
 const tough = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
 
-// Конфигурация HTTP-клиента
+// Создаем хранилище для куки
 const cookieJar = new tough.CookieJar();
+
+// Создаем специальный экземпляр axios
 const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
     jar: cookieJar,
     withCredentials: true,
-    timeout: 10000,
-    headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-    }
 }));
 
 /**
@@ -20,18 +18,11 @@ const api = wrapper(axios.create({
  */
 const login = async () => {
     try {
-        const response = await api.post('/api/session', {
+        await api.post('/api/session', {
             password: process.env.WG_API_PASSWORD
         });
-        
-        console.log('✅ Успешная авторизация. Куки:', response.headers['set-cookie']);
-        return true;
     } catch (error) {
-        console.error('❌ Ошибка авторизации:', {
-            status: error.response?.status,
-            data: error.response?.data,
-            headers: error.response?.headers
-        });
+        console.error('❌ Ошибка авторизации:', error.response?.data || error.message);
         throw new Error('Ошибка авторизации в WG-Easy API');
     }
 };
@@ -41,46 +32,32 @@ const login = async () => {
  */
 exports.createVpnClient = async (clientName) => {
     try {
-        // 1. Авторизация
         await login();
         
-        // 2. Создание клиента
         console.log('⌛ Создаем клиента:', clientName);
         const createResponse = await api.post('/api/wireguard/client', {
             name: clientName,
             allowedIPs: '10.8.0.0/24'
         });
 
-        // 3. Анализ ответа
         const responseData = createResponse.data;
-        console.log('📦 Ответ сервера:', JSON.stringify(responseData, null, 2));
-
-        // 4. Извлечение ID клиента (все возможные варианты)
-        const clientId = responseData.id 
-                      || responseData.clientId
-                      || (responseData.data && responseData.data.id)
-                      || (responseData.client && responseData.client.id)
-                      || clientName; // Последний вариант - используем имя как ID
-
+        
+        // ИСПРАВЛЕНО: Поскольку в ответе нет ID, используем имя клиента как ID
+        const clientId = responseData.name;
+        
         if (!clientId) {
-            throw new Error('Не удалось определить ID клиента');
+            throw new Error('Не удалось определить имя клиента для получения конфига.');
         }
 
-        console.log('🔑 Полученный ID клиента:', clientId);
+        console.log('🔑 Используем имя клиента как ID:', clientId);
 
-        // 5. Получение конфигурации
         console.log('⌛ Запрашиваем конфигурацию для ID:', clientId);
+        // Используем имя клиента в URL для получения конфигурации
         const configResponse = await api.get(
             `/api/wireguard/client/${clientId}/configuration`,
             { responseType: 'text' }
         );
 
-        // 6. Проверка конфигурации
-        if (!configResponse.data.includes('[Interface]')) {
-            throw new Error('Получена неверная конфигурация');
-        }
-
-        console.log('✅ Конфигурация успешно получена');
         return configResponse.data;
 
     } catch (error) {
