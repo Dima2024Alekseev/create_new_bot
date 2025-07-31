@@ -6,7 +6,7 @@ const { wrapper } = require('axios-cookiejar-support');
 // Создаем хранилище для куки
 const cookieJar = new tough.CookieJar();
 
-// Создаем специальный экземпляр axios, который будет автоматически использовать хранилище куки
+// Создаем специальный экземпляр axios
 const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
     jar: cookieJar,
@@ -34,11 +34,17 @@ exports.createVpnClient = async (clientName) => {
         console.log(`Отправка запроса на создание клиента по адресу: ${createClientUrl}`);
         
         const createResponse = await api.post(createClientUrl, { name: clientName });
+
+        // ОТЛАДКА: Выводим весь ответ сервера в консоль, чтобы увидеть его структуру
+        console.log('Ответ от сервера на создание клиента:', createResponse.data);
         
-        // ИСПРАВЛЕНО: Проверяем, что в ответе есть нужные данные,
-        // и получаем ID напрямую из root объекта, как это делают некоторые версии API.
-        const newClient = createResponse.data;
-        const clientId = newClient.id;
+        // ИСПРАВЛЕНО: Пытаемся получить ID из разных возможных мест в ответе
+        const newClient = createResponse.data.data || createResponse.data;
+        const clientId = newClient.id || (newClient.client && newClient.client.id);
+
+        if (!clientId) {
+            throw new Error('Не удалось получить ID нового клиента из ответа сервера.');
+        }
 
         const getConfigUrl = `/api/wireguard/client/${clientId}/configuration`;
         const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
