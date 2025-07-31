@@ -28,24 +28,7 @@ api.interceptors.request.use(config => {
   return config;
 });
 
-/**
- * Генерирует пару ключей WireGuard (публичный и приватный) и PresharedKey локально.
- * @returns {object} Объект с ключами: { privateKey, publicKey, presharedKey }
- */
-function generateKeys() {
-  try {
-    const privateKey = execSync('wg genkey').toString().trim();
-    const publicKey = execSync(`echo "${privateKey}" | wg pubkey`).toString().trim();
-    const presharedKey = execSync('wg genpsk').toString().trim();
-    return { privateKey, publicKey, presharedKey };
-  } catch (error) {
-    console.error('❌ Ошибка генерации ключей:', error.message);
-    throw new Error('Не удалось сгенерировать ключи WireGuard. Убедитесь, что `wireguard-tools` установлены.');
-  }
-}
-
 async function login() {
-  // ... (остается без изменений)
   try {
     const response = await api.post('/api/session', {
       password: API_CONFIG.PASSWORD
@@ -60,12 +43,10 @@ async function login() {
   }
 }
 
-async function createClient(clientName, publicKey) {
-  // ... (остается без изменений)
+async function createClient(clientName) {
   try {
     const response = await api.post('/api/wireguard/client', {
       name: clientName,
-      publicKey: publicKey,
       allowedIPs: '10.8.0.0/24'
     });
     console.log(`✅ Клиент "${clientName}" создан успешно.`);
@@ -77,7 +58,6 @@ async function createClient(clientName, publicKey) {
 }
 
 async function getClientData(clientName) {
-  // ... (остается без изменений)
   try {
     const response = await api.get('/api/wireguard/client');
     const client = response.data.find(c => c.name === clientName);
@@ -90,25 +70,58 @@ async function getClientData(clientName) {
 }
 
 /**
- * Генерирует конфигурационный файл WireGuard для клиента.
- * @param {string} privateKey Приватный ключ клиента.
- * @param {string} presharedKey Общий ключ (PresharedKey).
- * @param {object} clientData Данные клиента, полученные из API.
+ * Получает полную конфигурацию клиента (включая приватный ключ и PresharedKey) в виде текста из API.
+ * @param {string} clientId ID клиента.
+ * @returns {Promise<object>} Объект с извлеченными ключами: { privateKey, presharedKey }.
+ */
+async function getClientConfigFromText(clientId) {
+    const endpoint = `/api/wireguard/client/${clientId}/configuration`;
+    try {
+        const response = await api.get(endpoint, {
+            responseType: 'text' // Указываем, что ожидаем текстовый ответ, а не JSON
+        });
+
+        const configText = response.data;
+
+        // Регулярные выражения для поиска нужных ключей
+        const privateKeyMatch = configText.match(/PrivateKey = (.+)/);
+        const presharedKeyMatch = configText.match(/PresharedKey = (.+)/);
+
+        if (!privateKeyMatch) {
+            throw new Error('Не удалось найти PrivateKey в конфигурации.');
+        }
+
+        const privateKey = privateKeyMatch[1].trim();
+        const presharedKey = presharedKeyMatch ? presharedKeyMatch[1].trim() : null; // PresharedKey может отсутствовать
+
+        return { privateKey, presharedKey };
+    } catch (error) {
+        console.error('❌ Ошибка получения конфигурации клиента:', error.message);
+        throw new Error(`Не удалось получить полную конфигурацию клиента: ${error.message}`);
+    }
+}
+
+/**
+ * Генерирует финальный конфигурационный файл.
+ * @param {object} configData Объект с данными для конфигурации.
  * @returns {string} Строка конфигурационного файла.
  */
-function generateConfig(privateKey, presharedKey, clientData) {
-  if (!privateKey || !presharedKey || !clientData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
+function generateConfig(configData) {
+  if (!configData.privateKey || !configData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
   }
 
+  // Добавляем PresharedKey только если он существует
+  const presharedKeyLine = configData.presharedKey ? `PresharedKey = ${configData.presharedKey}` : '';
+
   return `[Interface]
-PrivateKey = ${privateKey}
-Address = ${clientData.address}/24
+PrivateKey = ${configData.privateKey}
+Address = ${configData.address}/24
 DNS = 1.1.1.1
 
 [Peer]
 PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
-PresharedKey = ${presharedKey}
+${presharedKeyLine}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
@@ -121,24 +134,29 @@ PersistentKeepalive = 25`;
  */
 exports.createVpnClient = async (clientName) => {
   try {
-    // 1. Генерируем ключи локально, включая PresharedKey
-    const { privateKey, publicKey, presharedKey } = generateKeys();
-    console.log('🔑 Ключи сгенерированы локально.');
-
-    // 2. Авторизация
+    // 1. Авторизация
     await login();
 
-    // 3. Создание клиента через API с нашим публичным ключом
+    // 2. Создание клиента через API (API сам сгенерирует ключи)
     console.log(`⌛ Создаем клиента: ${clientName}`);
-    await createClient(clientName, publicKey);
+    const creationResponse = await createClient(clientName);
+    const clientId = creationResponse.id; // Получаем ID созданного клиента
 
-    // 4. Получаем данные о созданном клиенте, чтобы узнать его IP-адрес
-    console.log(`🔍 Получаем данные клиента: ${clientName}`);
+    // 3. Получаем данные о созданном клиенте, чтобы узнать его IP-адрес
+    // Это нужно, потому что API не возвращает полный конфиг в одном запросе
     const clientData = await getClientData(clientName);
 
-    // 5. Генерируем конфигурационный файл, используя все необходимые ключи
+    // 4. Получаем полную конфигурацию в виде текста и извлекаем ключи
+    console.log(`🔍 Получаем ключи из конфигурации клиента: ${clientName}`);
+    const { privateKey, presharedKey } = await getClientConfigFromText(clientId);
+
+    // 5. Генерируем финальный конфигурационный файл, используя все собранные данные
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
-    const config = generateConfig(privateKey, presharedKey, clientData);
+    const config = generateConfig({
+        privateKey,
+        presharedKey,
+        address: clientData.address,
+    });
 
     console.log('✅ Конфигурация успешно сгенерирована.');
     return config;
