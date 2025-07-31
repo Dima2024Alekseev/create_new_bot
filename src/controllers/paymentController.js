@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
-const { formatDate, escapeMarkdown } = require('../utils/helpers');
+const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers');
 const { createVpnClient } = require('../services/vpnService');
 
 /**
@@ -111,8 +111,18 @@ exports.handleApprove = async (ctx) => {
 
         if (updatedUser.subscriptionCount === 1) {
             try {
-                // ИЗМЕНЕНО: Использование только username, если он есть. Иначе - 'telegram_userId'.
-                const clientName = updatedUser.username ? updatedUser.username : `telegram_${userId}`;
+                let clientName;
+                if (updatedUser.username) {
+                    clientName = transliterate(updatedUser.username);
+                    clientName = clientName.replace(/[^a-zA-Z0-9_]/g, '');
+                } else {
+                    clientName = `telegram_${userId}`;
+                }
+                
+                if (clientName.length === 0) {
+                    clientName = `telegram_${userId}`;
+                }
+
                 const configContent = await createVpnClient(clientName);
 
                 await ctx.telegram.sendMessage(
@@ -133,7 +143,6 @@ exports.handleApprove = async (ctx) => {
                     }
                 );
 
-                // ИЗМЕНЕНО: Использование clientName для имени файла
                 await ctx.telegram.sendDocument(
                     userId,
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
