@@ -1,57 +1,95 @@
-// src/services/vpnService.js
 const axios = require('axios');
 const tough = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
 
-// Создаем хранилище для куки
+// Конфигурация HTTP-клиента
 const cookieJar = new tough.CookieJar();
-
-// Создаем специальный экземпляр axios
 const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
     jar: cookieJar,
     withCredentials: true,
+    timeout: 10000,
+    headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
 }));
 
+/**
+ * Выполняет вход в API wg-easy
+ */
 const login = async () => {
-    const loginUrl = '/api/session';
-    const password = process.env.WG_API_PASSWORD;
-
     try {
-        await api.post(loginUrl, { password });
-        console.log('✅ Успешный вход в API wg-easy, получены сессионные куки.');
+        const response = await api.post('/api/session', {
+            password: process.env.WG_API_PASSWORD
+        });
+        
+        console.log('✅ Успешная авторизация. Куки:', response.headers['set-cookie']);
+        return true;
     } catch (error) {
-        console.error('❌ Ошибка входа в API wg-easy:', error.response?.data || error.message);
-        throw new Error('Не удалось войти в API. Проверьте WG_API_URL и WG_API_PASSWORD.');
+        console.error('❌ Ошибка авторизации:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            headers: error.response?.headers
+        });
+        throw new Error('Ошибка авторизации в WG-Easy API');
     }
 };
 
+/**
+ * Создает VPN-клиента и возвращает его конфигурацию
+ */
 exports.createVpnClient = async (clientName) => {
     try {
+        // 1. Авторизация
         await login();
-
-        const createClientUrl = '/api/wireguard/client';
-        console.log(`Отправка запроса на создание клиента по адресу: ${createClientUrl}`);
         
-        const createResponse = await api.post(createClientUrl, { name: clientName });
+        // 2. Создание клиента
+        console.log('⌛ Создаем клиента:', clientName);
+        const createResponse = await api.post('/api/wireguard/client', {
+            name: clientName,
+            allowedIPs: '10.8.0.0/24'
+        });
 
-        // ОТЛАДКА: Выводим весь ответ сервера в консоль, чтобы увидеть его структуру
-        console.log('Ответ от сервера на создание клиента:', createResponse.data);
-        
-        // ИСПРАВЛЕНО: Пытаемся получить ID из разных возможных мест в ответе
-        const newClient = createResponse.data.data || createResponse.data;
-        const clientId = newClient.id || (newClient.client && newClient.client.id);
+        // 3. Анализ ответа
+        const responseData = createResponse.data;
+        console.log('📦 Ответ сервера:', JSON.stringify(responseData, null, 2));
+
+        // 4. Извлечение ID клиента (все возможные варианты)
+        const clientId = responseData.id 
+                      || responseData.clientId
+                      || (responseData.data && responseData.data.id)
+                      || (responseData.client && responseData.client.id)
+                      || clientName; // Последний вариант - используем имя как ID
 
         if (!clientId) {
-            throw new Error('Не удалось получить ID нового клиента из ответа сервера.');
+            throw new Error('Не удалось определить ID клиента');
         }
 
-        const getConfigUrl = `/api/wireguard/client/${clientId}/configuration`;
-        const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
+        console.log('🔑 Полученный ID клиента:', clientId);
 
+        // 5. Получение конфигурации
+        console.log('⌛ Запрашиваем конфигурацию для ID:', clientId);
+        const configResponse = await api.get(
+            `/api/wireguard/client/${clientId}/configuration`,
+            { responseType: 'text' }
+        );
+
+        // 6. Проверка конфигурации
+        if (!configResponse.data.includes('[Interface]')) {
+            throw new Error('Получена неверная конфигурация');
+        }
+
+        console.log('✅ Конфигурация успешно получена');
         return configResponse.data;
+
     } catch (error) {
-        console.error('Ошибка при создании клиента VPN:', error.response?.data || error.message);
-        throw new Error('Не удалось создать клиента VPN. Проверьте настройки API.');
+        console.error('🔥 Критическая ошибка:', {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data
+        });
+        
+        throw new Error(`Ошибка создания VPN-клиента: ${error.message}`);
     }
 };
