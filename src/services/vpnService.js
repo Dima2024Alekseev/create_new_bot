@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 
 // Конфигурация API
 const API_CONFIG = {
-  BASE_URL: process.env.WG_API_URL || 'http://localhost:51821',
+  BASE_URL: 'http://37.233.85.212:51821',
   PASSWORD: process.env.WG_API_PASSWORD,
   TIMEOUT: 15000
 };
@@ -67,33 +67,32 @@ async function createClient(clientName) {
 }
 
 async function getConfigFromAPI(clientName) {
-  const endpoints = [
-    `/api/wireguard/client/${clientName}/configuration`,
-    `/api/wireguard/config/${clientName}`,
-    `/api/wireguard/download/${clientName}`
-  ];
+  const endpoint = `/api/wireguard/client/${clientName}/configuration`;
 
   const maxRetries = 5;
   const retryDelay = 2000; // 2 секунды
 
-  for (const endpoint of endpoints) {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await api.get(endpoint, {
-          responseType: 'text'
-        });
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await api.get(endpoint, {
+        responseType: 'text'
+      });
 
-        if (response.data.includes('[Interface]')) {
-          return response.data;
-        }
-        throw new Error('Неверный формат конфигурации');
-      } catch (error) {
-        if (error.response?.status === 404 && i < maxRetries - 1) {
-          console.log(`⚠️ Попытка ${i + 1}/${maxRetries}: Конфиг не найден (404) для эндпоинта ${endpoint}, повторяю через ${retryDelay / 1000} сек.`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-        } else {
-          console.error(`❌ Не удалось получить конфиг через API для эндпоинта ${endpoint}:`, error.message);
-        }
+      if (response.data.includes('[Interface]')) {
+        return response.data;
+      }
+      throw new Error('Неверный формат конфигурации');
+    } catch (error) {
+      if (error.response?.status === 404 && i < maxRetries - 1) {
+        console.log(`⚠️ Попытка ${i + 1}/${maxRetries}: Конфиг не найден (404), повторяю через ${retryDelay / 1000} сек.`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        console.error(`❌ Не удалось получить конфиг через API для эндпоинта ${endpoint}:`, {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message
+        });
+        return null;
       }
     }
   }
