@@ -17,12 +17,10 @@ const api = wrapper(axios.create({
  * Выполняет вход в API wg-easy и устанавливает сессию (куки).
  */
 const login = async () => {
-    // API-адрес для входа
     const loginUrl = '/api/session';
     const password = process.env.WG_API_PASSWORD;
 
     try {
-        // Отправляем пароль и получаем куки. Axios автоматически сохранит их в cookieJar.
         await api.post(loginUrl, { password });
         console.log('✅ Успешный вход в API wg-easy, получены сессионные куки.');
     } catch (error) {
@@ -38,20 +36,21 @@ const login = async () => {
  */
 exports.createVpnClient = async (clientName) => {
     try {
-        // Шаг 1: Выполняем вход, чтобы убедиться, что у нас есть сессия.
         await login();
 
-        // Шаг 2: Создаем клиента. Axios теперь сам отправит нужные куки из хранилища.
-        const createResponse = await api.post('/api/clients', { name: clientName });
+        // ИСПРАВЛЕНО: API-адрес для создания клиента
+        const createClientUrl = '/api/v1/users';
+
+        const createResponse = await api.post(createClientUrl, { name: clientName });
         const newClient = createResponse.data;
         const clientId = newClient.id;
 
-        // Шаг 3: Получаем конфиг. Куки снова отправятся автоматически.
-        const configResponse = await api.get(`/api/clients/${clientId}/configuration`, { responseType: 'text' });
+        const getConfigUrl = `/api/clients/${clientId}/configuration`;
+        
+        const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
 
         return configResponse.data;
     } catch (error) {
-        // Если авторизация не удалась, выбрасываем ошибку
         console.error('Ошибка при создании клиента VPN:', error.response?.data || error.message);
         throw new Error('Не удалось создать клиента VPN. Проверьте настройки API.');
     }
