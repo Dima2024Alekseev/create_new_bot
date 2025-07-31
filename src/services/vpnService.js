@@ -108,9 +108,13 @@ exports.createVpnClient = async (clientName) => {
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
     
-    // 3. Получение конфигурации (пробуем разные методы)
+    // 3. Добавляем задержку, чтобы дать время на генерацию конфигурации
+    console.log('⏱️ Ждем 2 секунды, чтобы конфигурация сгенерировалась...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 4. Получение конфигурации (пробуем разные методы)
     const config = await getConfigFromAPI(clientName) || 
-                  await getConfigFromDocker(clientName);
+                   await getConfigFromDocker(clientName);
     
     if (!config) {
       throw new Error('Все методы получения конфигурации не сработали');
