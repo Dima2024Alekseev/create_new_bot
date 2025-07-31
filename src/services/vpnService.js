@@ -1,19 +1,15 @@
 const axios = require('axios');
-const { execSync } = require('child_process');
 
 // Конфигурация API
 const API_CONFIG = {
   BASE_URL: 'http://37.233.85.212:51821',
   PASSWORD: process.env.WG_API_PASSWORD,
-  // Публичный ключ сервера, который не меняется
   SERVER_PUBLIC_KEY: '+VmjO9mBKNMW7G7sdn6Haqxzx2YXgi592/LfepbRLDU=',
   TIMEOUT: 15000
 };
 
-// Глобальная сессия для авторизации
 let sessionCookie = null;
 
-// Настройка клиента Axios
 const api = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
@@ -23,7 +19,6 @@ const api = axios.create({
   }
 });
 
-// Интерцептор для автоматической передачи куки в каждом запросе
 api.interceptors.request.use(config => {
   if (sessionCookie) {
     config.headers.Cookie = sessionCookie;
@@ -31,9 +26,6 @@ api.interceptors.request.use(config => {
   return config;
 });
 
-/**
- * Осуществляет авторизацию в API по паролю.
- */
 async function login() {
   try {
     const response = await api.post('/api/session', {
@@ -49,12 +41,6 @@ async function login() {
   }
 }
 
-/**
- * Создает нового клиента через API.
- * API сам генерирует ключи.
- * @param {string} clientName Имя клиента.
- * @returns {Promise<object>} Данные ответа от API, включая ID клиента.
- */
 async function createClient(clientName) {
   try {
     const response = await api.post('/api/wireguard/client', {
@@ -69,11 +55,6 @@ async function createClient(clientName) {
   }
 }
 
-/**
- * Получает данные конкретного клиента из API.
- * @param {string} clientName Имя клиента.
- * @returns {Promise<object>} Данные клиента.
- */
 async function getClientData(clientName) {
   try {
     const response = await api.get('/api/wireguard/client');
@@ -86,11 +67,6 @@ async function getClientData(clientName) {
   }
 }
 
-/**
- * Получает полную конфигурацию клиента в виде текста, парсит её и возвращает ключи.
- * @param {string} clientId ID клиента.
- * @returns {Promise<object>} Объект с извлеченными ключами: { privateKey, presharedKey }.
- */
 async function getClientConfigFromText(clientId) {
     const endpoint = `/api/wireguard/client/${clientId}/configuration`;
     console.log(`🌐 Запрашиваю конфигурацию по URL: ${API_CONFIG.BASE_URL + endpoint}`);
@@ -122,17 +98,11 @@ async function getClientConfigFromText(clientId) {
     }
 }
 
-/**
- * Генерирует финальный конфигурационный файл.
- * @param {object} configData Объект с данными для конфигурации.
- * @returns {string} Строка конфигурационного файла.
- */
 function generateConfig(configData) {
   if (!configData.privateKey || !configData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
   }
 
-  // Добавляем PresharedKey только если он существует
   const presharedKeyLine = configData.presharedKey ? `PresharedKey = ${configData.presharedKey}` : '';
 
   return `[Interface]
@@ -148,37 +118,24 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-/**
- * Основная функция для создания VPN-клиента.
- * @param {string} clientName Имя клиента.
- * @returns {Promise<string>} Строка конфигурационного файла.
- */
 exports.createVpnClient = async (clientName) => {
   try {
-    // 1. Авторизация
     await login();
-
-    // 2. Создание клиента (API сам сгенерирует ключи)
     console.log(`⌛ Создаем клиента: ${clientName}`);
-    const creationResponse = await createClient(clientName);
-    const clientId = creationResponse.id;
-
-    // 3. Получаем данные о клиенте, чтобы узнать IP-адрес
-    // Это нужно, так как API не возвращает полный конфиг в одном запросе
+    await createClient(clientName);
+    console.log('⏳ Ожидаю 1 секунду, чтобы сервер обновил данные...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log(`🔍 Получаем данные клиента: ${clientName}`);
     const clientData = await getClientData(clientName);
-    
-    // 4. Получаем полную конфигурацию в виде текста и извлекаем ключи
-    console.log(`🔍 Получаем ключи из конфигурации клиента: ${clientName}`);
+    const clientId = clientData.id;
+    console.log(`🔍 Получаем ключи из конфигурации клиента: ${clientName} (ID: ${clientId})`);
     const { privateKey, presharedKey } = await getClientConfigFromText(clientId);
-
-    // 5. Генерируем финальный конфигурационный файл
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
     const config = generateConfig({
         privateKey,
         presharedKey,
         address: clientData.address,
     });
-
     console.log('✅ Конфигурация успешно сгенерирована.');
     return config;
   } catch (error) {
