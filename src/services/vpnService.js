@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { execSync } = require('child_process');
 
 // Конфигурация API
 const API_CONFIG = {
@@ -8,8 +9,13 @@ const API_CONFIG = {
   TIMEOUT: 15000
 };
 
+// Переменная для хранения сессии
 let sessionCookie = null;
+// Флаг, чтобы избежать параллельных попыток авторизации
+let isAuthorizing = false;
+let authPromise = null;
 
+// Настройка клиента Axios
 const api = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
@@ -19,28 +25,68 @@ const api = axios.create({
   }
 });
 
-api.interceptors.request.use(config => {
-  if (sessionCookie) {
-    config.headers.Cookie = sessionCookie;
+// Интерцептор запросов для управления сессией
+api.interceptors.request.use(async (config) => {
+  if (!sessionCookie) {
+    console.log('🔗 Сессия отсутствует, выполняю авторизацию...');
+    await ensureAuthenticated();
   }
+  config.headers.Cookie = sessionCookie;
   return config;
+}, error => {
+  return Promise.reject(error);
 });
 
-async function login() {
-  try {
-    const response = await api.post('/api/session', {
-      password: API_CONFIG.PASSWORD
-    });
-    sessionCookie = response.headers['set-cookie']?.toString();
-    if (!sessionCookie) throw new Error('Не получены куки авторизации');
-    console.log('🔑 Авторизация успешна');
-    return true;
-  } catch (error) {
-    console.error('❌ Ошибка авторизации:', { status: error.response?.status, data: error.response?.data });
-    throw new Error('Ошибка входа в систему');
+// Интерцептор ответов для обработки ошибок авторизации
+api.interceptors.response.use(response => response, async (error) => {
+  const originalRequest = error.config;
+  // Если ошибка 401 и это не повторный запрос
+  if (error.response?.status === 401 && !originalRequest._isRetry) {
+    console.log('❌ Получен 401, сессия устарела. Обновляю сессию...');
+    originalRequest._isRetry = true;
+    await ensureAuthenticated(true); // Принудительная авторизация
+    originalRequest.headers.Cookie = sessionCookie;
+    return api(originalRequest);
   }
+  return Promise.reject(error);
+});
+
+/**
+ * Осуществляет авторизацию, если сессии нет, или принудительно, если флаг установлен.
+ * @param {boolean} force Принудительная авторизация.
+ */
+async function ensureAuthenticated(force = false) {
+  if (sessionCookie && !force && !isAuthorizing) {
+    return;
+  }
+  if (isAuthorizing) {
+    return authPromise;
+  }
+  
+  isAuthorizing = true;
+  authPromise = (async () => {
+    try {
+      const response = await api.post('/api/session', {
+        password: API_CONFIG.PASSWORD
+      });
+      sessionCookie = response.headers['set-cookie']?.toString();
+      if (!sessionCookie) throw new Error('Не получены куки авторизации');
+      console.log('🔑 Авторизация успешна');
+    } catch (error) {
+      console.error('❌ Ошибка авторизации:', { status: error.response?.status, data: error.response?.data });
+      throw new Error('Ошибка входа в систему');
+    } finally {
+      isAuthorizing = false;
+    }
+  })();
+  return authPromise;
 }
 
+/**
+ * Создает нового клиента через API.
+ * @param {string} clientName Имя клиента.
+ * @returns {Promise<object>} Данные ответа от API, включая ID клиента.
+ */
 async function createClient(clientName) {
   try {
     const response = await api.post('/api/wireguard/client', {
@@ -55,6 +101,11 @@ async function createClient(clientName) {
   }
 }
 
+/**
+ * Получает данные конкретного клиента из API.
+ * @param {string} clientName Имя клиента.
+ * @returns {Promise<object>} Данные клиента.
+ */
 async function getClientData(clientName) {
   try {
     const response = await api.get('/api/wireguard/client');
@@ -67,6 +118,11 @@ async function getClientData(clientName) {
   }
 }
 
+/**
+ * Получает полную конфигурацию клиента в виде текста, парсит её и возвращает ключи.
+ * @param {string} clientId ID клиента.
+ * @returns {Promise<object>} Объект с извлеченными ключами: { privateKey, presharedKey }.
+ */
 async function getClientConfigFromText(clientId) {
     const endpoint = `/api/wireguard/client/${clientId}/configuration`;
     console.log(`🌐 Запрашиваю конфигурацию по URL: ${API_CONFIG.BASE_URL + endpoint}`);
@@ -98,6 +154,11 @@ async function getClientConfigFromText(clientId) {
     }
 }
 
+/**
+ * Генерирует финальный конфигурационный файл.
+ * @param {object} configData Объект с данными для конфигурации.
+ * @returns {string} Строка конфигурационного файла.
+ */
 function generateConfig(configData) {
   if (!configData.privateKey || !configData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
     throw new Error('Недостаточно данных для генерации конфигурации.');
@@ -118,24 +179,35 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
+/**
+ * Основная функция для создания VPN-клиента.
+ * @param {string} clientName Имя клиента.
+ * @returns {Promise<string>} Строка конфигурационного файла.
+ */
 exports.createVpnClient = async (clientName) => {
   try {
-    await login();
+    // Авторизация теперь управляется интерцептором, явный вызов login() не нужен.
+
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
+
     console.log('⏳ Ожидаю 1 секунду, чтобы сервер обновил данные...');
     await new Promise(resolve => setTimeout(resolve, 1000));
+
     console.log(`🔍 Получаем данные клиента: ${clientName}`);
     const clientData = await getClientData(clientName);
     const clientId = clientData.id;
+
     console.log(`🔍 Получаем ключи из конфигурации клиента: ${clientName} (ID: ${clientId})`);
     const { privateKey, presharedKey } = await getClientConfigFromText(clientId);
+
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
     const config = generateConfig({
         privateKey,
         presharedKey,
         address: clientData.address,
     });
+
     console.log('✅ Конфигурация успешно сгенерирована.');
     return config;
   } catch (error) {
