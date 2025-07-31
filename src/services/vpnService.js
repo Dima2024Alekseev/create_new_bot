@@ -7,12 +7,17 @@ const axios = require('axios');
  * @returns {Promise<string>} - Содержимое конфиг-файла клиента.
  */
 exports.createVpnClient = async (clientName) => {
-    // URL для создания нового пользователя
     const createClientUrl = `${process.env.WG_API_URL}/api/v1/users`;
     
     // Используем Basic Auth для доступа к API.
-    // 'wg-easy' - это hardcoded username для API, пароль берем из переменных окружения.
     const authHeader = `Basic ${Buffer.from(`wg-easy:${process.env.WG_API_PASSWORD}`).toString('base64')}`;
+
+    // --- НАЧАЛО ОТЛАДОЧНОГО КОДА ---
+    console.log('--- Проверка настроек VPN API ---');
+    console.log('URL запроса:', createClientUrl);
+    console.log('Пароль:', process.env.WG_API_PASSWORD);
+    console.log('--- Конец проверки ---');
+    // --- КОНЕЦ ОТЛАДОЧНОГО КОДА ---
 
     try {
         // Шаг 1: Создаем клиента
@@ -31,11 +36,11 @@ exports.createVpnClient = async (clientName) => {
             getConfigUrl,
             { 
                 headers: { 'Authorization': authHeader },
-                responseType: 'text' // Получаем ответ как обычный текст
+                responseType: 'text'
             }
         );
 
-        return configResponse.data; // Возвращаем содержимое файла
+        return configResponse.data;
     } catch (error) {
         console.error('Ошибка при создании клиента VPN:', error.response?.data || error.message);
         throw new Error('Не удалось создать клиента VPN. Проверьте настройки API.');
