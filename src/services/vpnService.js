@@ -4,7 +4,9 @@ const axios = require('axios');
 const API_CONFIG = {
     BASE_URL: 'http://37.233.85.212:51821',
     PASSWORD: process.env.WG_API_PASSWORD,
-    TIMEOUT: 15000
+    TIMEOUT: 15000,
+    // ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ ЭТО ЗНАЧЕНИЕ НА РЕАЛЬНЫЙ КЛЮЧ СЕРВЕРА
+    SERVER_PUBLIC_KEY: '+VmjO9mBKNMW7G7sdn6Haqxzx2YXgi592/LfepbRLDU=' 
 };
 
 let sessionCookie = null;
@@ -58,7 +60,7 @@ async function createClient(clientName) {
     }
 }
 
-// ИСПРАВЛЕНО
+// ИСПРАВЛЕНО: Теперь используется ключ сервера из API_CONFIG
 function generateConfig(clientData) {
     return `[Interface]
 PrivateKey = ${clientData.privateKey}
@@ -66,7 +68,7 @@ Address = ${clientData.address}
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${clientData.publicKey}
+PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
