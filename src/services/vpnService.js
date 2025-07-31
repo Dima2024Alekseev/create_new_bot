@@ -1,11 +1,8 @@
 // src/services/vpnService.js
 const axios = require('axios');
 
-let authToken = null; // Переменная для хранения токена
+let authToken = null;
 
-/**
- * Выполняет вход в API wg-easy и получает токен.
- */
 const login = async () => {
     if (authToken) {
         return authToken;
@@ -15,7 +12,8 @@ const login = async () => {
     const password = process.env.WG_API_PASSWORD;
 
     try {
-        const response = await axios.post(loginUrl, { password });
+        // Меняем способ передачи пароля: отправляем его как JSON-объект в теле запроса
+        const response = await axios.post(loginUrl, { password: password });
         authToken = response.data.token;
         console.log('✅ Успешный вход в API wg-easy, получен токен.');
         return authToken;
@@ -25,19 +23,13 @@ const login = async () => {
     }
 };
 
-/**
- * Создает нового клиента в wg-easy и возвращает его конфигурацию.
- * @param {string} clientName - Имя клиента (например, Telegram ID).
- * @returns {Promise<string>} - Содержимое конфиг-файла клиента.
- */
 exports.createVpnClient = async (clientName) => {
     try {
-        const token = await login(); // Шаг 1: Получаем токен
+        const token = await login();
 
         const createClientUrl = `${process.env.WG_API_URL}/api/v1/users`;
         const headers = { 'Authorization': `Bearer ${token}` };
 
-        // Шаг 2: Создаем клиента, используя токен
         const createResponse = await axios.post(
             createClientUrl,
             { name: clientName },
@@ -47,7 +39,6 @@ exports.createVpnClient = async (clientName) => {
         const newClient = createResponse.data.data;
         const clientId = newClient.id;
 
-        // Шаг 3: Получаем конфиг-файл созданного клиента
         const getConfigUrl = `${process.env.WG_API_URL}/api/v1/users/${clientId}/configuration`;
         const configResponse = await axios.get(
             getConfigUrl,
@@ -59,7 +50,6 @@ exports.createVpnClient = async (clientName) => {
 
         return configResponse.data;
     } catch (error) {
-        // Если авторизация не удалась, пытаемся войти снова на следующий раз
         if (error.response?.status === 401) {
             authToken = null;
         }
