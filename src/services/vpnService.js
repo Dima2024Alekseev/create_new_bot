@@ -42,14 +42,13 @@ async function login() {
     }
 }
 
-// ИЗМЕНЕНО: Эта функция теперь возвращает данные созданного клиента
 async function createClient(clientName) {
     try {
         const response = await api.post('/api/wireguard/client', {
             name: clientName,
             allowedIPs: '10.8.0.0/24'
         });
-        return response.data; // Возвращаем данные из ответа API
+        return response.data;
     } catch (error) {
         console.error('❌ Ошибка создания клиента:', {
             status: error.response?.status,
@@ -59,9 +58,7 @@ async function createClient(clientName) {
     }
 }
 
-// УДАЛЕНО: Эта функция больше не нужна, так как createClient уже возвращает нужные данные.
-// async function getClientData(clientName) { ... }
-
+// ИСПРАВЛЕНО
 function generateConfig(clientData) {
     return `[Interface]
 PrivateKey = ${clientData.privateKey}
@@ -69,7 +66,7 @@ Address = ${clientData.address}
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = ${clientData.serverPublicKey}
+PublicKey = ${clientData.publicKey}  // ИЗМЕНЕНО: clientData.publicKey
 Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
@@ -80,10 +77,10 @@ exports.createVpnClient = async (clientName) => {
         await login();
 
         console.log(`⌛ Создаем клиента: ${clientName}`);
-        // ИЗМЕНЕНО: Теперь мы сразу получаем clientData из createClient
         const clientData = await createClient(clientName);
 
-        if (!clientData || !clientData.privateKey || !clientData.serverPublicKey) {
+        // ИСПРАВЛЕНО: Проверка на clientData.publicKey
+        if (!clientData || !clientData.privateKey || !clientData.publicKey) {
              console.error('❌ API не вернул необходимые ключи для клиента.');
              console.log('Полученный ответ:', JSON.stringify(clientData, null, 2));
              throw new Error('От API не получены ключи для конфигурации');
