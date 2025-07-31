@@ -1,23 +1,28 @@
 // src/services/vpnService.js
 const axios = require('axios');
+const tough = require('tough-cookie');
+const { wrapper } = require('axios-cookiejar-support');
 
-// Создаем специальный экземпляр axios для работы с API
-// withCredentials: true позволяет автоматически отправлять и получать куки
-const api = axios.create({
+// Создаем хранилище для куки
+const cookieJar = new tough.CookieJar();
+
+// Создаем специальный экземпляр axios, который будет автоматически использовать хранилище куки
+const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
+    jar: cookieJar, // Указываем хранилище куки
     withCredentials: true,
-});
+}));
 
 /**
  * Выполняет вход в API wg-easy и устанавливает сессию (куки).
  */
 const login = async () => {
-    // URL для входа, который ты нашел
+    // API-адрес для входа
     const loginUrl = '/api/session';
     const password = process.env.WG_API_PASSWORD;
 
     try {
-        // Отправляем пароль и получаем куки в ответ
+        // Отправляем пароль и получаем куки. Axios автоматически сохранит их в cookieJar.
         await api.post(loginUrl, { password });
         console.log('✅ Успешный вход в API wg-easy, получены сессионные куки.');
     } catch (error) {
@@ -33,22 +38,16 @@ const login = async () => {
  */
 exports.createVpnClient = async (clientName) => {
     try {
-        // Выполняем вход, чтобы убедиться, что у нас есть сессия
+        // Шаг 1: Выполняем вход, чтобы убедиться, что у нас есть сессия.
         await login();
 
-        // API-адрес для создания клиента
-        const createClientUrl = '/api/clients';
-
-        // Создаем клиента. Axios сам отправит нужные куки.
-        const createResponse = await api.post(createClientUrl, { name: clientName });
+        // Шаг 2: Создаем клиента. Axios теперь сам отправит нужные куки из хранилища.
+        const createResponse = await api.post('/api/clients', { name: clientName });
         const newClient = createResponse.data;
         const clientId = newClient.id;
 
-        // API-адрес для получения конфига
-        const getConfigUrl = `/api/clients/${clientId}/configuration`;
-        
-        // Получаем конфиг. Куки снова отправятся автоматически.
-        const configResponse = await api.get(getConfigUrl, { responseType: 'text' });
+        // Шаг 3: Получаем конфиг. Куки снова отправятся автоматически.
+        const configResponse = await api.get(`/api/clients/${clientId}/configuration`, { responseType: 'text' });
 
         return configResponse.data;
     } catch (error) {
