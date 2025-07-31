@@ -1,48 +1,52 @@
+// src/services/vpnService.js
 const axios = require('axios');
 const tough = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
 
+// Создаем хранилище для куки
 const cookieJar = new tough.CookieJar();
+
+// Создаем специальный экземпляр axios
 const api = wrapper(axios.create({
     baseURL: process.env.WG_API_URL,
     jar: cookieJar,
     withCredentials: true,
-    timeout: 10000
 }));
 
+/**
+ * Выполняет вход в API wg-easy
+ */
 const login = async () => {
     try {
-        const response = await api.post('/api/session', {
+        await api.post('/api/session', {
             password: process.env.WG_API_PASSWORD
         });
-        console.log('✅ Авторизация успешна');
-        return true;
     } catch (error) {
         console.error('❌ Ошибка авторизации:', error.response?.data || error.message);
-        throw error;
+        throw new Error('Ошибка авторизации в WG-Easy API');
     }
 };
 
+/**
+ * Создает VPN-клиента и возвращает его конфигурацию
+ */
 exports.createVpnClient = async (clientName) => {
     try {
-        // 1. Авторизация
         await login();
-
-        // 2. Создание клиента
+        
         console.log('⌛ Создание клиента:', clientName);
-        const createResponse = await api.post('/api/wireguard/client', {
+        await api.post('/api/wireguard/client', {
             name: clientName,
             allowedIPs: '10.8.0.0/24'
         });
 
-        // 3. Получение конфигурации (используем имя клиента)
+        // ИСПРАВЛЕНО: Используем правильный эндпоинт для получения конфигурации
         console.log('⌛ Получение конфигурации для:', clientName);
         const configResponse = await api.get(
-            `/api/wireguard/client/${clientName}/download`, // Измененный эндпоинт
+            `/api/wireguard/client/${clientName}/configuration`,
             { responseType: 'text' }
         );
 
-        // 4. Проверка конфигурации
         if (!configResponse.data.includes('[Interface]')) {
             throw new Error('Неверный формат конфигурации');
         }
