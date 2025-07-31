@@ -93,46 +93,20 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-async function generateClientName(baseName = "name") {
-  try {
-    const response = await api.get('/api/wireguard/client');
-    const existingClients = response.data;
-    
-    let maxNumber = 0;
-    const nameRegex = new RegExp(`^${baseName}-(\\d+)$`);
-    
-    existingClients.forEach(client => {
-      const match = client.name.match(nameRegex);
-      if (match) {
-        const num = parseInt(match[1]);
-        if (num > maxNumber) maxNumber = num;
-      }
-    });
-    
-    return `${baseName}-${maxNumber + 1}`;
-  } catch (error) {
-    console.error('❌ Ошибка генерации имени:', error);
-    return `${baseName}-1`;
-  }
-}
-
-exports.createVpnClient = async (baseName = "name") => {
+exports.createVpnClient = async (clientName) => {
   try {
     // 1. Авторизация
     await login();
 
-    // 2. Генерация уникального имени
-    const clientName = await generateClientName(baseName);
-    console.log(`⌛ Генерируем клиента с именем: ${clientName}`);
-
-    // 3. Создание клиента
+    // 2. Создание клиента
+    console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
 
-    // 4. Получение данных клиента
+    // 3. Получение данных клиента
     console.log(`🔍 Получаем данные клиента: ${clientName}`);
     const clientData = await getClientData(clientName);
 
-    // 5. Генерация конфигурации
+    // 4. Генерация конфигурации
     console.log(`⚙️ Генерируем конфиг для: ${clientName}`);
     const config = generateConfig(clientData);
 
@@ -141,10 +115,7 @@ exports.createVpnClient = async (baseName = "name") => {
     }
 
     console.log('✅ Конфигурация успешно сгенерирована');
-    return {
-      name: clientName,
-      config: config
-    };
+    return config;
   } catch (error) {
     console.error('🔥 Критическая ошибка:', {
       message: error.message,
