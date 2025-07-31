@@ -35,15 +35,25 @@ exports.createVpnClient = async (clientName) => {
         await login();
         
         console.log('⌛ Создание клиента:', clientName);
-        await api.post('/api/wireguard/client', {
+        // ИСПРАВЛЕНО: Используем /api/clients для создания клиента
+        const createResponse = await api.post('/api/clients', {
             name: clientName,
             allowedIPs: '10.8.0.0/24'
         });
 
-        // ИСПРАВЛЕНО: Используем правильный эндпоинт для получения конфигурации
-        console.log('⌛ Получение конфигурации для:', clientName);
+        const newClient = createResponse.data.data;
+        const clientId = newClient.id;
+
+        if (!clientId) {
+            throw new Error('Не удалось получить ID нового клиента из ответа сервера.');
+        }
+
+        console.log('🔑 Полученный ID клиента:', clientId);
+
+        console.log('⌛ Получение конфигурации для:', clientId);
+        // ИСПРАВЛЕНО: Используем ID клиента в URL для получения конфигурации
         const configResponse = await api.get(
-            `/api/wireguard/client/${clientName}/configuration`,
+            `/api/clients/${clientId}/configuration`,
             { responseType: 'text' }
         );
 
