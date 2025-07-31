@@ -27,6 +27,11 @@ api.interceptors.request.use(cfg => {
   return cfg;
 });
 
+// Вспомогательная функция для задержки
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function login() {
   try {
     const response = await api.post('/api/session', {
@@ -110,6 +115,10 @@ exports.createVpnClient = async (clientName) => {
     // 2. Создание клиента
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
+    
+    // 🛑 Добавляем задержку, чтобы дать WireGuard-UI время обновить файл
+    console.log('⏳ Ожидаем 2 секунды, пока конфигурация обновится...');
+    await sleep(2000);
     
     // 3. Получаем конфигурацию из файла
     const configText = await extractConfigFromFile(clientName);
