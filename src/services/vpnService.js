@@ -9,9 +9,8 @@ const API_CONFIG = {
   TIMEOUT: 15000
 };
 
-// Переменная для хранения сессии
+// Переменные для хранения состояния авторизации
 let sessionCookie = null;
-// Флаг, чтобы избежать параллельных попыток авторизации
 let isAuthorizing = false;
 let authPromise = null;
 
@@ -40,7 +39,6 @@ api.interceptors.request.use(async (config) => {
 // Интерцептор ответов для обработки ошибок авторизации
 api.interceptors.response.use(response => response, async (error) => {
   const originalRequest = error.config;
-  // Если ошибка 401 и это не повторный запрос
   if (error.response?.status === 401 && !originalRequest._isRetry) {
     console.log('❌ Получен 401, сессия устарела. Обновляю сессию...');
     originalRequest._isRetry = true;
@@ -53,6 +51,7 @@ api.interceptors.response.use(response => response, async (error) => {
 
 /**
  * Осуществляет авторизацию, если сессии нет, или принудительно, если флаг установлен.
+ * Использует `authPromise` для предотвращения параллельных авторизаций.
  * @param {boolean} force Принудительная авторизация.
  */
 async function ensureAuthenticated(force = false) {
@@ -85,7 +84,7 @@ async function ensureAuthenticated(force = false) {
 /**
  * Создает нового клиента через API.
  * @param {string} clientName Имя клиента.
- * @returns {Promise<object>} Данные ответа от API, включая ID клиента.
+ * @returns {Promise<object>} Данные ответа от API.
  */
 async function createClient(clientName) {
   try {
@@ -104,7 +103,7 @@ async function createClient(clientName) {
 /**
  * Получает данные конкретного клиента из API.
  * @param {string} clientName Имя клиента.
- * @returns {Promise<object>} Данные клиента.
+ * @returns {Promise<object>} Данные клиента, включая ID и IP-адрес.
  */
 async function getClientData(clientName) {
   try {
@@ -186,7 +185,11 @@ PersistentKeepalive = 25`;
  */
 exports.createVpnClient = async (clientName) => {
   try {
-    // Авторизация теперь управляется интерцептором, явный вызов login() не нужен.
+    // Явно авторизуемся перед выполнением любых запросов,
+    // чтобы интерцепторы не создавали "состояние гонки".
+    console.log('🔗 Выполняю принудительную авторизацию перед началом работы.');
+    await ensureAuthenticated(true);
+    console.log('✅ Авторизация завершена. Сессия установлена.');
 
     console.log(`⌛ Создаем клиента: ${clientName}`);
     await createClient(clientName);
