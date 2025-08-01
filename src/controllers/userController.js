@@ -39,11 +39,9 @@ exports.handleStart = async (ctx) => {
                     [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
                 );
             } else {
-                // --- ИЗМЕНЕНИЕ ДЛЯ ОТОБРАЖЕНИЯ ТОЛЬКО ДНЕЙ ---
                 const timeLeft = expireDate - now;
-                const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24)); // Округляем до целого дня в большую сторону
+                const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
                 statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
-                // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
                 if (daysLeft < 7) {
                     statusText += `\n⚠️ Ваша подписка скоро истекает. Чтобы продлить её, нажмите кнопку ниже.\n`;
@@ -108,15 +106,13 @@ exports.checkSubscriptionStatus = async (ctx) => {
         const timeLeft = user.expireDate - now;
 
         if (timeLeft > 0) {
-            // --- ИЗМЕНЕНИЕ ДЛЯ ОТОБРАЖЕНИЯ ТОЛЬКО ДНЕЙ ---
             const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
             await ctx.reply(
                 `✅ *Ваша подписка активна!*` +
                 `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
-                `\nОсталось: *${daysLeft}* дней.`, // Изменено здесь
+                `\nОсталось: *${daysLeft}* дней.`,
                 { parse_mode: 'Markdown' }
             );
-            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
         } else {
             user.status = 'inactive';
             await user.save();
@@ -229,6 +225,9 @@ exports.cancelSubscriptionAbort = async (ctx) => {
  */
 exports.handleVpnConfigured = async (ctx) => {
     const userId = ctx.match[1];
+    const user = await User.findOne({ userId });
+    const name = user?.firstName || user?.username || `Пользователь ${userId}`;
+
     await ctx.answerCbQuery('Отлично!');
     await ctx.editMessageText(
         'Отлично! Приятного пользования. 🙌\n\n' +
@@ -237,6 +236,16 @@ exports.handleVpnConfigured = async (ctx) => {
             [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
         ])
     );
+
+    try {
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `✅ *Оповещение:* Пользователь *${name}* (ID: ${userId}) успешно настроил VPN.`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (error) {
+        console.error(`Ошибка при отправке оповещения администратору о настройке VPN для пользователя ${userId}:`, error);
+    }
 };
 
 /**
