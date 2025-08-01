@@ -17,11 +17,11 @@ exports.handlePhoto = async (ctx) => {
     if (id === parseInt(process.env.ADMIN_ID)) {
         return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
-    
+
     // --- НАЧАЛО ДОБАВЛЕННОЙ ЛОГИКИ ---
     // 1. Сначала находим пользователя, чтобы проверить его статус
     const user = await User.findOne({ userId: id });
-    
+
     if (user && user.status === 'pending') {
         return ctx.reply('⏳ Ваш скриншот уже на проверке у администратора. Пожалуйста, подождите.');
     }
@@ -248,3 +248,32 @@ exports.handleReject = async (ctx) => {
         await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
     }
 };
+
+exports.showPaymentDetails = async (ctx) => {
+    if (!checkAdmin(ctx)) return;
+    
+    const details = await PaymentDetails.findOne().sort({ updatedAt: -1 });
+    
+    await ctx.replyWithMarkdown(
+      `💳 *Текущие реквизиты:*\n\n` +
+      `📱 Телефон: \`${details?.phoneNumber || 'не задан'}\`\n` +
+      `💳 Карта: \`${details?.bankCard || 'не задана'}\`\n\n` +
+      `Последнее обновление: ${details?.updatedAt.toLocaleString('ru-RU') || 'нет данных'}`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('✏️ Изменить реквизиты', 'change_payment_details')]
+      ])
+    );
+  };
+  
+  exports.handleChangePaymentDetails = async (ctx) => {
+    if (!checkAdmin(ctx)) return;
+    
+    ctx.session.awaitingPaymentDetails = true;
+    await ctx.replyWithMarkdown(
+      'Введите новые реквизиты в формате:\n\n' +
+      '`Телефон НомерКарты`\n\n' +
+      '*Пример:*\n' +
+      '`+79991234567 2200111122223333`',
+      { parse_mode: 'Markdown' }
+    );
+  };

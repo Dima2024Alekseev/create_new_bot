@@ -4,6 +4,7 @@ const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const User = require('./models/User');
+const PaymentDetails = require('./models/PaymentDetails');
 
 const {
   handleStart,
@@ -17,7 +18,7 @@ const {
   cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
+const { handlePhoto, handleApprove, handleReject, showPaymentDetails, handleChangePaymentDetails } = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
@@ -32,10 +33,27 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
 
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
-connectDB().catch(err => {
-  console.error('❌ MongoDB connection failed:', err);
-  process.exit(1);
-});
+// Инициализация базы данных и реквизитов по умолчанию
+async function initialize() {
+  try {
+    await connectDB();
+    
+    // Создаем дефолтные реквизиты, если их нет
+    const count = await PaymentDetails.countDocuments();
+    if (count === 0) {
+      await PaymentDetails.create({
+        bankCard: process.env.DEFAULT_CARD || '2200111122223333',
+        phoneNumber: process.env.DEFAULT_PHONE || '+79991234567'
+      });
+      console.log('✅ Default payment details created');
+    }
+  } catch (err) {
+    console.error('❌ Initialization failed:', err);
+    process.exit(1);
+  }
+}
+
+initialize();
 
 // --- Глобальные обработчики ошибок ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -47,7 +65,11 @@ process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
   console.error('Stack trace:', err.stack);
   try {
-    await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
+    await bot.telegram.sendMessage(
+      process.env.ADMIN_ID, 
+      `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, 
+      { parse_mode: 'Markdown' }
+    ).catch(e => console.error("Error sending exception to admin:", e));
   } catch (e) {
     console.error("Failed to send uncaught exception to admin:", e);
   }
@@ -55,14 +77,17 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для ответов АДМИНА и обработки проблем ---
+// --- Middleware для обработки сообщений ---
 bot.use(async (ctx, next) => {
+  // Обработка ответов админа
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    // Ответ на вопрос пользователя
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       await handleAnswer(ctx);
       return;
     }
 
+    // Ответ на проблему с VPN
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
@@ -70,21 +95,45 @@ bot.use(async (ctx, next) => {
       try {
         await ctx.telegram.sendMessage(
           targetUserId,
-          `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
-          `"${adminAnswer}"`,
+          `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n"${adminAnswer}"`,
           { parse_mode: 'Markdown' }
         );
         await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
       } catch (error) {
-        console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
+        console.error(`Ошибка при отправке ответа пользователю ${targetUserId}:`, error);
         await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
       } finally {
         ctx.session.awaitingAnswerVpnIssueFor = null;
       }
       return;
     }
+
+    // Изменение реквизитов оплаты
+    if (ctx.session?.awaitingPaymentDetails && ctx.message?.text) {
+      const [phoneNumber, bankCard] = ctx.message.text.split(' ');
+      
+      if (!phoneNumber || !bankCard) {
+        return ctx.reply('❌ Неверный формат. Используйте: "Телефон НомерКарты"');
+      }
+
+      try {
+        await PaymentDetails.create({
+          phoneNumber,
+          bankCard
+        });
+
+        await ctx.reply('✅ Реквизиты успешно обновлены!');
+        await showPaymentDetails(ctx);
+      } catch (error) {
+        await ctx.reply(`❌ Ошибка: ${error.message}`);
+      }
+      
+      ctx.session.awaitingPaymentDetails = false;
+      return;
+    }
   }
 
+  // Обработка проблем с VPN от пользователя
   if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
@@ -97,8 +146,7 @@ bot.use(async (ctx, next) => {
 
     await ctx.telegram.sendMessage(
       process.env.ADMIN_ID,
-      `🚨 *Проблема с настройкой VPN от пользователя ${userName} (ID: ${userId}):*\n\n` +
-      `"${problemDescription}"`,
+      `🚨 *Проблема с настройкой VPN от пользователя ${userName} (ID: ${userId}):*\n\n"${problemDescription}"`,
       {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -116,7 +164,6 @@ bot.use(async (ctx, next) => {
 
   return next();
 });
-
 
 // --- Обработчики команд ---
 bot.start(async (ctx) => {
@@ -154,68 +201,68 @@ bot.on('text', async (ctx, next) => {
   }
 });
 
+// --- Админские команды ---
+bot.command('admin', async (ctx) => {
+  if (!checkAdmin(ctx)) return;
+  
+  await ctx.reply('Панель администратора:', Markup.inlineKeyboard([
+    [Markup.button.callback('💳 Реквизиты оплаты', 'show_payment_details')],
+    [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
+    [Markup.button.callback('❓ Вопросы', 'list_questions')],
+    [Markup.button.callback('💰 Проверить платежи', 'check_payments_admin')]
+  ]));
+});
 
-// Админские команды
-bot.command('admin', checkAdminMenu);
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
 
-
-// Обработка платежей (фото)
+// --- Обработка платежей (фото) ---
 bot.on('photo', handlePhoto);
 
+// --- Обработчики кнопок ---
 
-// --- Обработчики кнопок (callback_data) ---
-
-// Кнопки админа
+// Админские кнопки
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
+bot.action('show_payment_details', showPaymentDetails);
+bot.action('change_payment_details', handleChangePaymentDetails);
 
 bot.action(/answer_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
   await ctx.answerCbQuery();
 });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   const targetUserId = parseInt(ctx.match[1]);
   ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
   await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
   await ctx.answerCbQuery();
 });
 
-
-// Кнопки пользователя
+// Пользовательские кнопки
 bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
-
-// Новые обработчики для отмены подписки
 bot.action('cancel_subscription_confirm', promptCancelSubscription);
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 
-
 // --- Напоминания ---
 setupReminders(bot);
 
-
-// --- Запуск ---
+// --- Запуск бота ---
 bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+  .then(() => console.log('🤖 Бот запущен'))
   .catch(err => {
     console.error('🚨 Ошибка запуска:', err);
     process.exit(1);
