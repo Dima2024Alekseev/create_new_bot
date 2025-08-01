@@ -17,6 +17,15 @@ exports.handlePhoto = async (ctx) => {
     if (id === parseInt(process.env.ADMIN_ID)) {
         return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
+    
+    // --- НАЧАЛО ДОБАВЛЕННОЙ ЛОГИКИ ---
+    // 1. Сначала находим пользователя, чтобы проверить его статус
+    const user = await User.findOne({ userId: id });
+    
+    if (user && user.status === 'pending') {
+        return ctx.reply('⏳ Ваш скриншот уже на проверке у администратора. Пожалуйста, подождите.');
+    }
+    // --- КОНЕЦ ДОБАВЛЕННОЙ ЛОГИКИ ---
 
     // Получаем ID последнего (самого большого) фото из массива
     const photo = ctx.message.photo.pop();
