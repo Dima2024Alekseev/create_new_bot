@@ -1,5 +1,4 @@
 // src/utils/helpers.js
-const PaymentDetails = require('../models/PaymentDetails');
 
 /**
  * Генерирует реквизиты для оплаты VPN с динамическим комментарием.
@@ -85,14 +84,4 @@ exports.transliterate = (str) => {
   return str.split('').map(function (char) {
     return rus[char] || char;
   }).join('');
-};
-
-exports.getPaymentDetails = async () => {
-  const details = await PaymentDetails.findOne().sort({ updatedAt: -1 });
-  if (!details) throw new Error('Реквизиты оплаты не настроены');
-  
-  return {
-    phoneNumber: details.phoneNumber,
-    bankCard: details.bankCard
-  };
 };
