@@ -4,8 +4,11 @@ const Question = require('../models/Question');
 const { paymentDetails, formatDate } = require('../utils/helpers');
 const { revokeVpnClient } = require('./vpnService');
 
+// Установка часового пояса для Красноярска (GMT+7)
+process.env.TZ = 'Asia/Krasnoyarsk';
+
 /**
- * Проверяет вопросы, на которые не было отвечено.
+ * Проверяет неотвеченные вопросы старше 24 часов
  */
 const checkUnansweredQuestions = async (bot) => {
     try {
@@ -20,15 +23,15 @@ const checkUnansweredQuestions = async (bot) => {
                 process.env.ADMIN_ID,
                 `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
             );
-            console.log(`[Cron] Отправлено экстренное напоминание админу о ${urgentQuestions} срочных вопросах.`);
+            console.log(`[Cron][${now.toLocaleString('ru-RU', {timeZone: 'Asia/Krasnoyarsk'})}] Уведомление админу о ${urgentQuestions} вопросах.`);
         }
     } catch (err) {
-        console.error('[Cron] Ошибка в задаче экстренных напоминаний:', err);
+        console.error('[Cron] Ошибка проверки вопросов:', err);
     }
 };
 
 /**
- * Отправляет напоминания о скором истечении подписки.
+ * Напоминает о подписках, истекающих через REMIND_DAYS дней
  */
 const checkExpiringSubscriptions = async (bot) => {
     try {
@@ -45,7 +48,7 @@ const checkExpiringSubscriptions = async (bot) => {
             ]
         });
 
-        console.log(`[Cron] Найдено ${expiringUsers.length} пользователей с истекающей подпиской.`);
+        console.log(`[Cron][${now.toLocaleString('ru-RU', {timeZone: 'Asia/Krasnoyarsk'})}] Найдено ${expiringUsers.length} пользователей для напоминания.`);
 
         for (const user of expiringUsers) {
             try {
@@ -62,82 +65,86 @@ const checkExpiringSubscriptions = async (bot) => {
                     { userId: user.userId },
                     { lastReminder: now }
                 );
-                console.log(`[Cron] Отправлено напоминание пользователю ${user.userId}.`);
             } catch (e) {
-                console.error(`[Cron] Ошибка напоминания для ${user.userId}:`, e.message);
+                console.error(`Ошибка уведомления для ${user.userId}:`, e.message);
             }
         }
     } catch (err) {
-        console.error('[Cron] Ошибка в ежедневной задаче напоминаний:', err);
+        console.error('[Cron] Ошибка проверки подписок:', err);
     }
 };
 
 /**
- * Проверяет истекшие подписки и отзывает доступ.
+ * Отключает истекшие подписки
  */
 const checkExpiredSubscriptions = async (bot) => {
     try {
         const now = new Date();
-        console.log(`[Cron] Проверка истекших подписок. Текущее время: ${now.toISOString()}`);
-
         const expiredUsers = await User.find({
             status: 'active',
             expireDate: { $lte: now }
         });
 
-        console.log(`[Cron] Найдено ${expiredUsers.length} пользователей с истекшей подпиской.`);
-
-        if (expiredUsers.length > 0) {
-            console.log('[Cron] Данные истекших пользователей:', expiredUsers.map(u => ({ userId: u.userId, expireDate: u.expireDate })));
-        }
+        console.log(`[Cron][${now.toLocaleString('ru-RU', {timeZone: 'Asia/Krasnoyarsk'})}] Найдено ${expiredUsers.length} истекших подписок.`);
 
         for (const user of expiredUsers) {
             try {
+                // Обновление статуса
                 await User.updateOne(
                     { userId: user.userId },
                     { status: 'inactive' }
                 );
-                console.log(`[Cron] Подписка пользователя ${user.userId} истекла, статус изменен на 'inactive'.`);
 
+                // Уведомление пользователя
                 await bot.telegram.sendMessage(
                     user.userId,
-                    '❌ *Ваша подписка истекла!* Доступ к VPN был отключён.\n\n' +
-                    'Чтобы продолжить пользоваться сервисом, пожалуйста, оплатите подписку.',
+                    '❌ *Ваша подписка истекла!* Доступ к VPN отключён.\n\n' +
+                    'Для продления оплатите подписку.',
                     { parse_mode: 'Markdown' }
                 );
 
-                try {
-                    const clientName = user.vpnClientName;
-                    if (clientName) {
-                        await revokeVpnClient(clientName);
-                        console.log(`[Cron] VPN-клиент "${clientName}" успешно отозван.`);
-                    } else {
-                        console.warn(`[Cron] У пользователя ${user.userId} нет сохранённого имени VPN-клиента.`);
-                        await bot.telegram.sendMessage(
-                            process.env.ADMIN_ID,
-                            `⚠️ *Внимание:* У пользователя ${user.userId} нет сохранённого имени VPN-клиента. Не удалось отозвать доступ.`
-                        );
-                    }
-                } catch (vpnError) {
-                    console.error(`[Cron] Ошибка при отзыве VPN-клиента для ${user.userId}:`, vpnError);
+                // Отзыв VPN-доступа
+                if (user.vpnClientName) {
+                    await revokeVpnClient(user.vpnClientName);
+                    console.log(`Отозван доступ для ${user.userId} (${user.vpnClientName})`);
+                } else {
+                    console.warn(`Нет данных VPN для ${user.userId}`);
                     await bot.telegram.sendMessage(
                         process.env.ADMIN_ID,
-                        `🚨 *Ошибка:* Не удалось отозвать VPN-клиента для пользователя ${user.userId}.`
+                        `⚠️ У пользователя ${user.userId} нет VPN-клиента`
                     );
                 }
-
             } catch (e) {
-                console.error(`[Cron] Ошибка при обработке истекшей подписки для ${user.userId}:`, e.message);
+                console.error(`Ошибка обработки для ${user.userId}:`, e.message);
             }
         }
     } catch (err) {
-        console.error('[Cron] Ошибка в задаче обработки истекших подписок:', err);
+        console.error('[Cron] Ошибка отключения подписок:', err);
     }
 };
 
+/**
+ * Настройка расписания задач
+ */
 exports.setupReminders = (bot) => {
-    cron.schedule('0 10 * * *', () => checkExpiringSubscriptions(bot));
-    cron.schedule('0 */3 * * *', () => checkUnansweredQuestions(bot));
-    cron.schedule('*/1 * * * *', () => checkExpiredSubscriptions(bot));
-    console.log('✅ Напоминания cron запланированы.');
+    // Ежедневно в 10:00 по Красноярску - напоминания
+    cron.schedule('0 10 * * *', () => checkExpiringSubscriptions(bot), {
+        timezone: 'Asia/Krasnoyarsk'
+    });
+
+    // Каждые 3 часа - проверка вопросов
+    cron.schedule('0 */3 * * *', () => checkUnansweredQuestions(bot), {
+        timezone: 'Asia/Krasnoyarsk'
+    });
+
+    // Каждые 6 часов - проверка истекших подписок
+    cron.schedule('0 */6 * * *', () => checkExpiredSubscriptions(bot), {
+        timezone: 'Asia/Krasnoyarsk'
+    });
+
+    console.log('✅ Cron-задачи настроены для GMT+7 (Красноярск)');
+    console.log('Расписание:');
+    console.log('- Напоминания: ежедневно в 10:00');
+    console.log('- Вопросы: каждые 3 часа (0,3,6,9,12,15,18,21)');
+    console.log('- Истекшие подписки: каждые 6 часов (0,6,12,18)');
 };

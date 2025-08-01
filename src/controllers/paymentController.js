@@ -93,7 +93,7 @@ exports.handleApprove = async (ctx) => {
         if (user && user.expireDate && user.expireDate > new Date()) {
             newExpireDate = new Date(user.expireDate);
         }
-        // ВНИМАНИЕ: Для продакшена замените на .setMonth(newExpireDate.getMonth() + 1);
+
         newExpireDate.setMinutes(newExpireDate.getMinutes() + 3);
 
         let clientName = null;
