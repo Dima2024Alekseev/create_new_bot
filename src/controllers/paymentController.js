@@ -24,13 +24,13 @@ exports.handlePhoto = async (ctx) => {
             { userId: id },
             {
                 userId: id,
-                username: username || first_name, // Сохраняем username или first_name для пользователя
+                username: username || first_name,
                 firstName: first_name,
                 paymentPhotoId: photo.file_id,
-                paymentPhotoDate: new Date(), // Добавлено: сохраняет дату отправки скриншота
-                status: 'pending' // Статус ожидания проверки
+                paymentPhotoDate: new Date(),
+                status: 'pending'
             },
-            { upsert: true, new: true } // Создать, если не существует; вернуть обновленный документ
+            { upsert: true, new: true }
         );
         // Подготавливаем кнопки для администратора
         const keyboard = Markup.inlineKeyboard([
@@ -57,10 +57,10 @@ exports.handlePhoto = async (ctx) => {
             photo.file_id,
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
-                    `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
+                    `Имя: ${userDisplay}\n` +
                     `ID: ${id}`,
-                parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в подписи
-                ...keyboard // Разворачиваем кнопки
+                parse_mode: 'Markdown',
+                ...keyboard
             }
         );
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
@@ -82,7 +82,7 @@ exports.handleApprove = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
     try {
         const user = await User.findOne({ userId });
-        
+
         let newExpireDate;
         const today = new Date();
         const existingExpireDate = user?.expireDate;
@@ -91,12 +91,16 @@ exports.handleApprove = async (ctx) => {
         if (user && user.status === 'active' && existingExpireDate && existingExpireDate > today) {
             newExpireDate = new Date(existingExpireDate);
             newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+            // Устанавливаем день на последнее число месяца
+            newExpireDate.setDate(0);
         } else {
             // Иначе, начинаем новую подписку с сегодняшнего дня
             newExpireDate = new Date();
             newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+            // Устанавливаем день на последнее число месяца
+            newExpireDate.setDate(0);
         }
-        
+
         // Устанавливаем время на конец дня для всех новых подписок
         newExpireDate.setHours(23, 59, 59, 999);
 
@@ -128,9 +132,8 @@ exports.handleApprove = async (ctx) => {
                 if (clientName.length === 0) {
                     clientName = `telegram_${userId}`;
                 }
-
                 const configContent = await createVpnClient(clientName);
-                
+
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
@@ -138,7 +141,6 @@ exports.handleApprove = async (ctx) => {
                     `📁 Ваш файл конфигурации VPN:`,
                     { parse_mode: 'Markdown' }
                 );
-
                 await ctx.telegram.sendDocument(
                     userId,
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
@@ -172,7 +174,6 @@ exports.handleApprove = async (ctx) => {
                         ]
                     ])
                 );
-
             } catch (vpnError) {
                 console.error(`Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
                 await ctx.telegram.sendMessage(
