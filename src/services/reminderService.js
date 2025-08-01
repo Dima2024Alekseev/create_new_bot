@@ -146,5 +146,5 @@ exports.setupReminders = (bot) => {
     console.log('Расписание:');
     console.log('- Напоминания: ежедневно в 10:00');
     console.log('- Вопросы: каждые 3 часа (0,3,6,9,12,15,18,21)');
-    console.log('- Истекшие подписки: каждые 6 часов (0,6,12,18)');
+    cron.schedule('*/1 * * * *', () => checkExpiredSubscriptions(bot));
 };
