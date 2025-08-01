@@ -161,6 +161,15 @@ exports.handleVpnConfigured = async (ctx) => {
         await ctx.answerCbQuery('✅ Отлично!');
         await ctx.reply('Поздравляем! VPN успешно настроен. Приятного пользования!');
         await ctx.deleteMessage();
+
+        // Уведомление администратора об успехе настройки
+        const user = await User.findOne({ userId });
+        const userName = user?.firstName || user?.username || 'Не указано';
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `🎉 *Пользователь ${userName} (ID: ${userId}) успешно настроил VPN.*`
+        );
+
     } catch (error) {
         console.error(`Ошибка при обработке vpn_configured для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Произошла ошибка.');
