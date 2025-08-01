@@ -91,16 +91,29 @@ exports.handleApprove = async (ctx) => {
 
   try {
     const user = await User.findOne({ userId });
-
-    let newExpireDate = new Date();
-
-    if (user && user.expireDate && user.expireDate > new Date()) {
-      newExpireDate = new Date(user.expireDate);
+    
+    if (!user) {
+      return ctx.answerCbQuery('❌ Пользователь не найден');
     }
 
+    // Текущая дата
+    const now = new Date();
+    
+    // Инициализируем новую дату окончания
+    let newExpireDate = new Date();
+    
+    // Если подписка активна и еще не истекла - продлеваем от текущей даты окончания
+    if (user.status === 'active' && user.expireDate && user.expireDate > now) {
+      newExpireDate = new Date(user.expireDate);
+    }
+    
+    // Добавляем ровно 1 месяц к вычисленной дате
     newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+    
+    // Устанавливаем время на конец дня (23:59:59)
     newExpireDate.setHours(23, 59, 59, 999);
 
+    // Обновляем пользователя
     const updatedUser = await User.findOneAndUpdate(
       { userId },
       {
@@ -110,37 +123,28 @@ exports.handleApprove = async (ctx) => {
         paymentPhotoDate: null,
         $inc: { subscriptionCount: 1 }
       },
-      { new: true, upsert: true }
+      { new: true }
     );
 
-    let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-      `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n`;
-
-    let keyboard = Markup.inlineKeyboard([]);
-
-    if (updatedUser.subscriptionCount === 1) {
-      message += `Нажмите кнопку ниже, чтобы получить файл конфигурации и видеоинструкцию.`;
-      keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('📁 Получить файл и инструкцию', `send_vpn_info_${userId}`)]
-      ]);
-    } else {
-      message += `Ваша подписка успешно продлена.`;
-    }
-
+    // Уведомляем пользователя
     await ctx.telegram.sendMessage(
       userId,
-      message,
-      keyboard.reply_markup ? { parse_mode: 'Markdown', ...keyboard } : { parse_mode: 'Markdown' }
+      `🎉 *Платёж подтверждён!*\n\n` +
+      `Ваша подписка продлена до *${formatDate(newExpireDate, true)}*\n` +
+      `Новых дней доступа: ${Math.ceil((newExpireDate - now) / (1000 * 60 * 60 * 24))}`,
+      { parse_mode: 'Markdown' }
     );
 
     await ctx.answerCbQuery('✅ Платёж принят');
     await ctx.deleteMessage();
+
   } catch (error) {
-    console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
-    await ctx.answerCbQuery('⚠️ Ошибка при одобрении платежа!');
-    await ctx.reply('⚠️ Произошла ошибка при одобрении платежа. Проверьте логи.');
+    console.error(`Ошибка продления подписки для ${userId}:`, error);
+    await ctx.answerCbQuery('⚠️ Ошибка продления!');
+    await ctx.reply('❌ Ошибка при обработке платежа. Проверьте логи.');
   }
 };
+
 
 /**
  * Обрабатывает отклонение платежа администратором.
