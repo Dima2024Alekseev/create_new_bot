@@ -40,9 +40,9 @@ exports.handleStart = async (ctx) => {
                     [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
                 );
             } else {
-                const timeLeft = expireDate - now;
-                const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-                statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
+              const timeLeft = user.expireDate - now;
+              const daysLeft = Math.floor(timeLeft / (1000 * 60 * 60 * 24)); 
+              statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
 
                 if (daysLeft < 7) {
                     statusText += `\n⚠️ Ваша подписка скоро истекает. Чтобы продлить её, нажмите кнопку ниже.\n`;
