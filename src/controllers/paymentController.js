@@ -156,7 +156,6 @@ exports.handleApprove = async (ctx) => {
                     ])
                 );
 
-                // Уведомление администратора об успехе
                 await ctx.telegram.sendMessage(
                     process.env.ADMIN_ID,
                     `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
