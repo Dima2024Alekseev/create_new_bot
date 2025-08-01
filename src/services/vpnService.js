@@ -143,33 +143,31 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-// ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ОТКЛЮЧЕНИЯ КЛИЕНТА
-// Использует PUT-запрос на специальный эндпоинт
 async function disableClient(clientId) {
     try {
         console.log(`[DEBUG] Отключение клиента с ID: ${clientId}`);
-        await api.put(`/api/wireguard/client/${clientId}/disable`);
+        await api.post(`/api/wireguard/client/${clientId}/disable`);
         console.log(`✅ Клиент с ID "${clientId}" успешно отключен`);
     } catch (error) {
         console.error('❌ Ошибка отключения клиента:', {
             status: error.response?.status,
-            data: error.response?.data
+            data: error.response?.data,
+            message: error.message
         });
         throw error;
     }
 }
 
-// ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ВКЛЮЧЕНИЯ КЛИЕНТА
-// Использует PUT-запрос на специальный эндпоинт
 async function enableClient(clientId) {
     try {
         console.log(`[DEBUG] Включение клиента с ID: ${clientId}`);
-        await api.put(`/api/wireguard/client/${clientId}/enable`);
+        await api.post(`/api/wireguard/client/${clientId}/enable`);
         console.log(`✅ Клиент с ID "${clientId}" успешно включен`);
     } catch (error) {
         console.error('❌ Ошибка включения клиента:', {
             status: error.response?.status,
-            data: error.response?.data
+            data: error.response?.data,
+            message: error.message
         });
         throw error;
     }
