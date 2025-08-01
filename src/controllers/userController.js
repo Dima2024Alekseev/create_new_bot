@@ -29,7 +29,7 @@ exports.handleStart = async (ctx) => {
         if (user.status === 'active') {
             const timeLeft = user.expireDate - new Date();
             const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-            statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
+            statusText = `✅ *Ваша подписка активна!*`;
 
             if (daysLeft < 7) {
                 statusText += `\n⚠️ Ваша подписка скоро истекает. Чтобы продлить её, нажмите кнопку ниже.\n`;
