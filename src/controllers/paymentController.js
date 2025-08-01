@@ -94,7 +94,8 @@ exports.handleApprove = async (ctx) => {
             newExpireDate = new Date(user.expireDate);
         }
 
-        newExpireDate.setMinutes(newExpireDate.getMinutes() + 3);
+        newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+        newExpireDate.setHours(23, 59, 59, 999);
 
         let clientName = null;
         if (user.subscriptionCount === 0) {
