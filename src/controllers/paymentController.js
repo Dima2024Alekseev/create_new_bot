@@ -140,6 +140,17 @@ exports.handleApprove = async (ctx) => {
                     { caption: '🎬 *Видеоинструкция* по настройке VPN:' }
                 );
 
+                // НОВОЕ ОПОВЕЩЕНИЕ ДЛЯ АДМИНА
+                let userName = updatedUser?.firstName || updatedUser?.username || 'Без имени';
+                if (updatedUser?.username) {
+                    userName = `${userName} (@${updatedUser.username})`;
+                }
+                await ctx.telegram.sendMessage(
+                    process.env.ADMIN_ID,
+                    `🎉 *Автоматическая отправка завершена!* 🎉\n\n` +
+                    `Пользователю ${userName} (ID: ${userId}) отправлен файл конфигурации и видеоинструкция.`
+                );
+
                 await ctx.telegram.sendMessage(
                     userId,
                     'После просмотра видео, пожалуйста, сообщите, удалось ли вам настроить VPN:',
