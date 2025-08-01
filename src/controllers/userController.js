@@ -226,11 +226,28 @@ exports.promptCancelSubscription = async (ctx) => {
  */
 exports.cancelSubscriptionFinal = async (ctx) => {
     const userId = ctx.from.id;
-    await ctx.answerCbQuery('Подписка отменена.');
-    await User.findOneAndUpdate({ userId }, { status: 'inactive' });
-    await ctx.reply('Ваша подписка отменена. Доступ к VPN будет прекращен.');
-    
-    // TODO: Добавить логику для отзыва доступа на VPN-сервере
+    try {
+        const user = await User.findOneAndUpdate({ userId }, { status: 'inactive' }, { new: true });
+
+        await ctx.answerCbQuery('Подписка отменена.');
+        await ctx.reply('Ваша подписка отменена. Доступ к VPN будет прекращен.');
+        
+        // НОВОЕ: Оповещение для админа
+        let userName = user?.firstName || user?.username || 'Без имени';
+        if (user?.username) {
+            userName = `${userName} (@${user.username})`;
+        }
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `❌ *Пользователь отменил подписку!*` +
+            `\n\nПользователь ${userName} (ID: ${userId}) нажал кнопку "Отменить".`
+        );
+
+        // TODO: Добавить логику для отзыва доступа на VPN-сервере
+    } catch (error) {
+        console.error(`Ошибка при отмене подписки для пользователя ${userId}:`, error);
+        await ctx.reply('⚠️ Произошла ошибка при отмене подписки.');
+    }
 };
 
 /**
