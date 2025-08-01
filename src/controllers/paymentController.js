@@ -139,7 +139,7 @@ exports.handleApprove = async (ctx) => {
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
                 );
 
-                const videoPath = path.join(__dirname, '..', '..', 'videos', 'instruction.mp4');
+                const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
                 await ctx.telegram.sendVideo(
                     userId,
                     { source: videoPath },
