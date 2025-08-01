@@ -229,7 +229,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
     try {
         const user = await User.findOneAndUpdate(
             { userId },
-            { status: 'inactive', expireDate: null }, // Исправлено: теперь обнуляем expireDate
+            { status: 'inactive', expireDate: null },
             { new: true }
         );
 
@@ -245,8 +245,6 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             `❌ *Пользователь отменил подписку!*` +
             `\n\nПользователь ${userName} (ID: ${userId}) нажал кнопку "Отменить".`
         );
-
-        // TODO: Добавить логику для отзыва доступа на VPN-сервере
     } catch (error) {
         console.error(`Ошибка при отмене подписки для пользователя ${userId}:`, error);
         await ctx.reply('⚠️ Произошла ошибка при отмене подписки.');

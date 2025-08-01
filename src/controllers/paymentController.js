@@ -82,11 +82,22 @@ exports.handleApprove = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
     try {
         const user = await User.findOne({ userId });
-        let newExpireDate = new Date();
-        if (user && user.expireDate && user.expireDate > new Date()) {
-            newExpireDate = new Date(user.expireDate);
+        
+        let newExpireDate;
+        const today = new Date();
+        const existingExpireDate = user?.expireDate;
+
+        // НОВАЯ ЛОГИКА: Если подписка активна и не истекла, продлеваем её
+        if (user && user.status === 'active' && existingExpireDate && existingExpireDate > today) {
+            newExpireDate = new Date(existingExpireDate);
+            newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+        } else {
+            // Иначе, начинаем новую подписку с сегодняшнего дня
+            newExpireDate = new Date();
+            newExpireDate.setMonth(newExpireDate.getMonth() + 1);
         }
-        newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+        
+        // Устанавливаем время на конец дня для всех новых подписок
         newExpireDate.setHours(23, 59, 59, 999);
 
         const updatedUser = await User.findOneAndUpdate(
