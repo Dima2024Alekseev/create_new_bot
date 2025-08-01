@@ -101,39 +101,52 @@ exports.handleApprove = async (ctx) => {
         if (user && user.expireDate && user.expireDate > new Date()) {
             newExpireDate = new Date(user.expireDate);
         }
+        // ВАЖНО: ВРЕМЕННОЕ РЕШЕНИЕ ДЛЯ ТЕСТИРОВАНИЯ
+        // ПОСЛЕ ТЕСТИРОВАНИЯ ИЗМЕНИТЕ ОБРАТНО НА newExpireDate.setMonth(newExpireDate.getMonth() + 1);
         newExpireDate.setMinutes(newExpireDate.getMinutes() + 3);
+
+        // --- НОВЫЙ БЛОК ДЛЯ СОХРАНЕНИЯ ИМЕНИ КЛИЕНТА ---
+        let clientName = null;
+        if (user.subscriptionCount === 0) {
+            // Генерируем имя только для первого платежа
+            if (user.username) {
+                clientName = transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '');
+            }
+            if (!clientName) {
+                clientName = `telegram_${userId}`;
+            }
+        } else {
+            // Для продления подписки используем уже существующее имя
+            clientName = user.vpnClientName;
+        }
+        // --- КОНЕЦ НОВОГО БЛОКА ---
+
+        const updateData = {
+            status: 'active',
+            expireDate: newExpireDate,
+            paymentPhotoId: null,
+            paymentPhotoDate: null,
+            $inc: { subscriptionCount: 1 }
+        };
+        // ЕСЛИ ЭТО ПЕРВЫЙ ПЛАТЕЖ, ДОБАВЛЯЕМ ИМЯ КЛИЕНТА В ОБНОВЛЕНИЕ
+        if (user.subscriptionCount === 0) {
+            updateData.vpnClientName = clientName;
+            updateData.vpnConfigured = false;
+        }
 
         const updatedUser = await User.findOneAndUpdate(
             { userId },
-            {
-                status: 'active',
-                expireDate: newExpireDate,
-                paymentPhotoId: null,
-                paymentPhotoDate: null,
-                $inc: { subscriptionCount: 1 }
-            },
+            updateData,
             { new: true, upsert: true }
         );
 
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
+        // Теперь проверяем subscriptionCount === 1, чтобы избежать повторной генерации
         if (updatedUser.subscriptionCount === 1) {
             try {
-                let clientName;
-                if (updatedUser.username) {
-                    clientName = transliterate(updatedUser.username);
-                    clientName = clientName.replace(/[^a-zA-Z0-9_]/g, '');
-                } else {
-                    clientName = `telegram_${userId}`;
-                }
-
-                if (clientName.length === 0) {
-                    clientName = `telegram_${userId}`;
-                }
-
                 const configContent = await createVpnClient(clientName);
-
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +

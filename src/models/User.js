@@ -30,7 +30,12 @@ const userSchema = new mongoose.Schema({
   vpnConfigured: {
     type: Boolean,
     default: false, // По умолчанию пользователь еще не настроил VPN
-  }
+  },
+  // НОВОЕ ПОЛЕ: Имя VPN-клиента для отзыва доступа
+  vpnClientName: {
+    type: String,
+    default: null,
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);

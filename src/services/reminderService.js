@@ -2,12 +2,12 @@ const cron = require('node-cron');
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { paymentDetails, formatDate } = require('../utils/helpers');
-const { revokeVpnClient } = require('./vpnService'); // ИСПРАВЛЕНО
+const { revokeVpnClient } = require('./vpnService');
 
 /**
- * Проверяет вопросы, на которые не было отвечено.
- * Эта функция осталась без изменений.
- */
+ * Проверяет вопросы, на которые не было отвечено.
+ * Эта функция осталась без изменений.
+ */
 const checkUnansweredQuestions = async (bot) => {
     try {
         const now = new Date();
@@ -29,9 +29,9 @@ const checkUnansweredQuestions = async (bot) => {
 };
 
 /**
- * Отправляет напоминания о скором истечении подписки.
- * Эта функция осталась без изменений.
- */
+ * Отправляет напоминания о скором истечении подписки.
+ * Эта функция осталась без изменений.
+ */
 const checkExpiringSubscriptions = async (bot) => {
     try {
         const now = new Date();
@@ -75,8 +75,8 @@ const checkExpiringSubscriptions = async (bot) => {
 };
 
 /**
- * Проверяет истекшие подписки и отзывает доступ.
- */
+ * Проверяет истекшие подписки и отзывает доступ.
+ */
 const checkExpiredSubscriptions = async (bot) => {
     try {
         const now = new Date();
@@ -105,11 +105,21 @@ const checkExpiredSubscriptions = async (bot) => {
                     { parse_mode: 'Markdown' }
                 );
 
-                // Отзываем VPN-клиента через API
+                // Отзываем VPN-клиента через API, используя имя из БД
                 try {
-                    const clientName = user.username ? user.username.replace(/[^a-zA-Z0-9_]/g, '') : `telegram_${user.userId}`;
-                    await revokeVpnClient(clientName);
-                    console.log(`[Cron] VPN-клиент для пользователя ${clientName} успешно отозван.`);
+                    // Используем сохранённое имя клиента из базы данных
+                    const clientName = user.vpnClientName;
+
+                    if (clientName) {
+                        await revokeVpnClient(clientName);
+                        console.log(`[Cron] VPN-клиент "${clientName}" успешно отозван.`);
+                    } else {
+                        console.warn(`[Cron] У пользователя ${user.userId} нет сохранённого имени VPN-клиента.`);
+                        await bot.telegram.sendMessage(
+                            process.env.ADMIN_ID,
+                            `⚠️ *Внимание:* У пользователя ${user.userId} нет сохранённого имени VPN-клиента. Не удалось отозвать доступ.`
+                        );
+                    }
                 } catch (vpnError) {
                     console.error(`[Cron] Ошибка при отзыве VPN-клиента для ${user.userId}:`, vpnError);
                     await bot.telegram.sendMessage(
