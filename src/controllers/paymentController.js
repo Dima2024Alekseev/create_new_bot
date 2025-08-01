@@ -87,14 +87,14 @@ exports.handleApprove = async (ctx) => {
         const today = new Date();
         const existingExpireDate = user?.expireDate;
 
-        // НОВАЯ ЛОГИКА: Если подписка активна и не истекла, продлеваем её
+        // ИСПРАВЛЕНИЕ: Теперь продлеваем на 3 месяца
         if (user && user.status === 'active' && existingExpireDate && existingExpireDate > today) {
             newExpireDate = new Date(existingExpireDate);
-            newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+            newExpireDate.setMonth(newExpireDate.getMonth() + 3);
         } else {
-            // Иначе, начинаем новую подписку с сегодняшнего дня
+            // Иначе, начинаем новую подписку с сегодняшнего дня на 3 месяца
             newExpireDate = new Date();
-            newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+            newExpireDate.setMonth(newExpireDate.getMonth() + 3);
         }
         
         // Устанавливаем время на конец дня для всех новых подписок
@@ -147,7 +147,6 @@ exports.handleApprove = async (ctx) => {
                 const videoPath = path.join(__dirname, '../videos/instruction.mp4');
                 await ctx.telegram.sendVideo(
                     userId,
-                    { source: videoPath },
                     { caption: '🎬 *Видеоинструкция* по настройке VPN:' }
                 );
 
