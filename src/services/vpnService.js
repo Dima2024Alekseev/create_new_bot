@@ -31,6 +31,7 @@ api.interceptors.request.use(config => {
 
 // Перехватчик ответов для сохранения cookies
 api.interceptors.response.use(response => {
+    // Проверяем оба варианта названия заголовка
     const cookies = response.headers['set-cookie'] || response.headers['Set-Cookie'];
 
     if (cookies) {
@@ -49,17 +50,14 @@ api.interceptors.response.use(response => {
 });
 
 async function login() {
-    if (sessionCookies) {
-        console.log('🔑 Сессия уже активна, повторная авторизация не требуется.');
-        return true;
-    }
     try {
         console.log('[DEBUG] Попытка авторизации...');
+
         const response = await api.post('/api/session', {
             password: API_CONFIG.PASSWORD
         }, {
             validateStatus: (status) => status === 204,
-            transformResponse: [(data) => data]
+            transformResponse: [(data) => data] // Важно для обработки пустых ответов
         });
 
         if (!sessionCookies) {
@@ -164,25 +162,34 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-/**
- * Основная функция для создания VPN-клиента через API.
- */
+// НОВАЯ ФУНКЦИЯ ДЛЯ УДАЛЕНИЯ КЛИЕНТА
+async function revokeClient(clientId) {
+    try {
+        console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
+        await api.delete(`/api/wireguard/client/${clientId}`);
+        console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
+    } catch (error) {
+        console.error('❌ Ошибка удаления клиента:', {
+            status: error.response?.status,
+            data: error.response?.data
+        });
+        throw error;
+    }
+}
+
 exports.createVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало создания клиента: ${clientName}`);
-
         await login();
         await createClient(clientName);
         await new Promise(resolve => setTimeout(resolve, 1000));
         const clientData = await getClientData(clientName);
         const { privateKey, presharedKey } = await getClientConfigFromText(clientData.id);
-
         const config = generateConfig({
             privateKey,
             presharedKey,
             address: clientData.address
         });
-
         console.log('✅ Конфигурация успешно сгенерирована');
         return config;
     } catch (error) {
@@ -194,23 +201,18 @@ exports.createVpnClient = async (clientName) => {
     }
 };
 
-/**
- * Отзывает доступ к VPN-клиенту через API.
- */
+// НОВЫЙ ЭКСПОРТИРУЕМЫЙ МЕТОД ДЛЯ ОТЗЫВА КЛИЕНТА
 exports.revokeVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало отзыва клиента: ${clientName}`);
-
         await login();
         const clientData = await getClientData(clientName);
-
-        const response = await api.delete(`/api/wireguard/client/${clientData.id}`);
-        console.log(`✅ Клиент "${clientName}" (ID: ${clientData.id}) успешно отозван.`);
-        return response.data;
+        await revokeClient(clientData.id);
+        console.log(`✅ Клиент "${clientName}" успешно отозван.`);
     } catch (error) {
-        console.error('❌ Ошибка отзыва клиента:', {
-            status: error.response?.status,
-            data: error.response?.data
+        console.error('🔥 Критическая ошибка:', {
+            message: error.message,
+            stack: error.stack
         });
         throw new Error(`Не удалось отозвать VPN-клиента: ${error.message}`);
     }

@@ -1,13 +1,13 @@
 const cron = require('node-cron');
 const User = require('../models/User');
 const Question = require('../models/Question');
-const { revokeVpnClient } = require('./vpnService');
 const { paymentDetails, formatDate } = require('../utils/helpers');
+const { revokeVpnClient } = require('./vpnService'); // ИСПРАВЛЕНО
 
 /**
- * Проверяет вопросы, на которые не было отвечено.
- * Эта функция осталась без изменений.
- */
+ * Проверяет вопросы, на которые не было отвечено.
+ * Эта функция осталась без изменений.
+ */
 const checkUnansweredQuestions = async (bot) => {
     try {
         const now = new Date();
@@ -29,9 +29,9 @@ const checkUnansweredQuestions = async (bot) => {
 };
 
 /**
- * Отправляет напоминания о скором истечении подписки.
- * Эта функция осталась без изменений.
- */
+ * Отправляет напоминания о скором истечении подписки.
+ * Эта функция осталась без изменений.
+ */
 const checkExpiringSubscriptions = async (bot) => {
     try {
         const now = new Date();
@@ -75,8 +75,8 @@ const checkExpiringSubscriptions = async (bot) => {
 };
 
 /**
- * Проверяет истекшие подписки и отзывает доступ.
- */
+ * Проверяет истекшие подписки и отзывает доступ.
+ */
 const checkExpiredSubscriptions = async (bot) => {
     try {
         const now = new Date();
