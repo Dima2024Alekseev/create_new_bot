@@ -56,22 +56,12 @@ async function login() {
             transformResponse: [(data) => data]
         });
         if (!sessionCookies) {
-            console.error('[DEBUG] Заголовки ответа:', response.headers);
             throw new Error('Не удалось получить cookies авторизации');
         }
         console.log('🔑 Авторизация успешна');
         return true;
     } catch (error) {
-        console.error('❌ Ошибка авторизации:', {
-            message: error.message,
-            config: error.config,
-            response: {
-                status: error.response?.status,
-                headers: error.response?.headers,
-                data: error.response?.data
-            }
-        });
-        throw new Error('Ошибка входа в систему');
+        throw new Error(`Ошибка входа в систему: ${error.message}`);
     }
 }
 
@@ -102,7 +92,6 @@ async function getClientData(clientName) {
         if (!client) {
             throw new Error(`Клиент "${clientName}" не найден`);
         }
-
         return client;
     } catch (error) {
         console.error('❌ Ошибка поиска клиента:', error.message);
@@ -123,7 +112,6 @@ async function getClientConfigFromText(clientId) {
         if (!privateKeyMatch) {
             throw new Error('Не найден PrivateKey в конфигурации');
         }
-
         return {
             privateKey: privateKeyMatch[1].trim(),
             presharedKey: presharedKeyMatch?.[1]?.trim()
@@ -155,11 +143,19 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-// НОВАЯ ФУНКЦИЯ ДЛЯ ОТКЛЮЧЕНИЯ КЛИЕНТА
+// ОБНОВЛЁННАЯ ФУНКЦИЯ ДЛЯ ОТКЛЮЧЕНИЯ КЛИЕНТА (использует PUT)
 async function disableClient(clientId) {
     try {
-        console.log(`[DEBUG] Отключение клиента с ID: ${clientId}`);
-        await api.patch(`/api/wireguard/client/${clientId}`, { enabled: false });
+        console.log(`[DEBUG] Отключение клиента с ID: ${clientId} (PUT)`);
+        // 1. Получаем текущую конфигурацию клиента
+        const getResponse = await api.get(`/api/wireguard/client/${clientId}`);
+        const clientData = getResponse.data;
+
+        // 2. Меняем поле 'enabled' на false
+        clientData.enabled = false;
+
+        // 3. Отправляем PUT-запрос с обновлённым объектом
+        await api.put(`/api/wireguard/client/${clientId}`, clientData);
         console.log(`✅ Клиент с ID "${clientId}" успешно отключен`);
     } catch (error) {
         console.error('❌ Ошибка отключения клиента:', {
@@ -170,11 +166,19 @@ async function disableClient(clientId) {
     }
 }
 
-// НОВАЯ ФУНКЦИЯ ДЛЯ ВКЛЮЧЕНИЯ КЛИЕНТА
+// ОБНОВЛЁННАЯ ФУНКЦИЯ ДЛЯ ВКЛЮЧЕНИЯ КЛИЕНТА (использует PUT)
 async function enableClient(clientId) {
     try {
-        console.log(`[DEBUG] Включение клиента с ID: ${clientId}`);
-        await api.patch(`/api/wireguard/client/${clientId}`, { enabled: true });
+        console.log(`[DEBUG] Включение клиента с ID: ${clientId} (PUT)`);
+        // 1. Получаем текущую конфигурацию клиента
+        const getResponse = await api.get(`/api/wireguard/client/${clientId}`);
+        const clientData = getResponse.data;
+
+        // 2. Меняем поле 'enabled' на true
+        clientData.enabled = true;
+        
+        // 3. Отправляем PUT-запрос с обновлённым объектом
+        await api.put(`/api/wireguard/client/${clientId}`, clientData);
         console.log(`✅ Клиент с ID "${clientId}" успешно включен`);
     } catch (error) {
         console.error('❌ Ошибка включения клиента:', {
