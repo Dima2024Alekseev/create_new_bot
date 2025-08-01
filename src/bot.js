@@ -1,4 +1,4 @@
-require('dotenv').config({ path: __dirname + '/../.env' });
+require('dotenv').config({ path: __dirname + '/../primer.env' });
 const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
