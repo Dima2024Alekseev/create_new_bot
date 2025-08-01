@@ -31,7 +31,6 @@ api.interceptors.request.use(config => {
 
 // Перехватчик ответов для сохранения cookies
 api.interceptors.response.use(response => {
-    // Проверяем оба варианта названия заголовка
     const cookies = response.headers['set-cookie'] || response.headers['Set-Cookie'];
 
     if (cookies) {
@@ -50,14 +49,17 @@ api.interceptors.response.use(response => {
 });
 
 async function login() {
+    if (sessionCookies) {
+        console.log('🔑 Сессия уже активна, повторная авторизация не требуется.');
+        return true;
+    }
     try {
         console.log('[DEBUG] Попытка авторизации...');
-
         const response = await api.post('/api/session', {
             password: API_CONFIG.PASSWORD
         }, {
             validateStatus: (status) => status === 204,
-            transformResponse: [(data) => data] // Важно для обработки пустых ответов
+            transformResponse: [(data) => data]
         });
 
         if (!sessionCookies) {
@@ -162,26 +164,19 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
+/**
+ * Основная функция для создания VPN-клиента через API.
+ */
 exports.createVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало создания клиента: ${clientName}`);
 
-        // Авторизация
         await login();
-
-        // Создание клиента
         await createClient(clientName);
-
-        // Задержка для обновления данных
         await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Получение данных клиента
         const clientData = await getClientData(clientName);
-
-        // Получение конфигурации
         const { privateKey, presharedKey } = await getClientConfigFromText(clientData.id);
 
-        // Генерация конфига
         const config = generateConfig({
             privateKey,
             presharedKey,
@@ -196,5 +191,27 @@ exports.createVpnClient = async (clientName) => {
             stack: error.stack
         });
         throw new Error(`Не удалось создать VPN-клиента: ${error.message}`);
+    }
+};
+
+/**
+ * Отзывает доступ к VPN-клиенту через API.
+ */
+exports.revokeVpnClient = async (clientName) => {
+    try {
+        console.log(`⌛ Начало отзыва клиента: ${clientName}`);
+
+        await login();
+        const clientData = await getClientData(clientName);
+
+        const response = await api.delete(`/api/wireguard/client/${clientData.id}`);
+        console.log(`✅ Клиент "${clientName}" (ID: ${clientData.id}) успешно отозван.`);
+        return response.data;
+    } catch (error) {
+        console.error('❌ Ошибка отзыва клиента:', {
+            status: error.response?.status,
+            data: error.response?.data
+        });
+        throw new Error(`Не удалось отозвать VPN-клиента: ${error.message}`);
     }
 };
