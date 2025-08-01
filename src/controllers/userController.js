@@ -227,12 +227,15 @@ exports.promptCancelSubscription = async (ctx) => {
 exports.cancelSubscriptionFinal = async (ctx) => {
     const userId = ctx.from.id;
     try {
-        const user = await User.findOneAndUpdate({ userId }, { status: 'inactive' }, { new: true });
+        const user = await User.findOneAndUpdate(
+            { userId },
+            { status: 'inactive', expireDate: null }, // Исправлено: теперь обнуляем expireDate
+            { new: true }
+        );
 
         await ctx.answerCbQuery('Подписка отменена.');
         await ctx.reply('Ваша подписка отменена. Доступ к VPN будет прекращен.');
         
-        // НОВОЕ: Оповещение для админа
         let userName = user?.firstName || user?.username || 'Без имени';
         if (user?.username) {
             userName = `${userName} (@${user.username})`;
