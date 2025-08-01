@@ -31,9 +31,10 @@ exports.handleStart = async (ctx) => {
             const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
             statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.`;
 
-            // Добавляем кнопки продления и отмены подписки для активных пользователей
+            // Добавляем все нужные кнопки для активных пользователей
             keyboardButtons.push(
                 [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
+                [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
                 [{ text: '❌ Отменить подписку', callback_data: 'cancel_subscription_confirm' }]
             );
 
@@ -48,8 +49,10 @@ exports.handleStart = async (ctx) => {
             keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
         }
 
-        // Кнопка "Задать вопрос" всегда доступна
-        keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
+        // Кнопка "Задать вопрос" всегда доступна в конце меню, если она еще не добавлена
+        if (!keyboardButtons.some(row => row.some(button => button.callback_data === 'ask_question'))) {
+             keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
+        }
 
         await ctx.reply(
             `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
@@ -174,7 +177,6 @@ exports.handleVpnConfigured = async (ctx) => {
         await ctx.answerCbQuery('✅ Отлично!');
         await ctx.reply('Поздравляем! VPN успешно настроен. Приятного пользования!');
         
-        // Удаляем кнопки, чтобы не засорять чат
         await ctx.deleteMessage().catch(e => console.error("Could not delete message:", e));
     } catch (error) {
         console.error(`Ошибка при обработке vpn_configured для пользователя ${userId}:`, error);
