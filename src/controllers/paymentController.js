@@ -145,7 +145,7 @@ exports.handleApprove = async (ctx) => {
                 );
 
                 // Путь к видеоинструкции
-                const videoPath = path.resolve(__dirname, '../src/videos/instruction.mp4');
+                const videoPath = path.resolve(__dirname, '../videos/instruction.mp4');
 
                 // Проверка, что видео существует
                 if (fs.existsSync(videoPath)) {
