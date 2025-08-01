@@ -3,14 +3,6 @@ const Question = require('../models/Question');
 const { Markup } = require('telegraf');
 const { formatDate, formatDuration, paymentDetails } = require('../utils/helpers');
 
-// --- Новая клавиатура для личного кабинета ---
-const personalCabinetKeyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🗓 Посмотреть срок действия подписки', 'check_subscription')],
-    [Markup.button.callback('💰 Продлить подписку', 'extend_subscription')],
-    [Markup.button.callback('❓ Задать вопрос', 'ask_question')],
-    [Markup.button.callback('❌ Отменить подписку', 'cancel_subscription_confirm')]
-]);
-
 /**
  * Обрабатывает команду /start, приветствуя пользователя и отображая главное меню.
  * @param {object} ctx - Объект контекста Telegraf.
@@ -31,55 +23,51 @@ exports.handleStart = async (ctx) => {
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
 
-        let statusText = `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n`;
-        let keyboard = Markup.inlineKeyboard([
-            [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-        ]);
+        let statusText = '';
+        let keyboardButtons = [];
 
-        if (user.status === 'active' && user.vpnConfigured) {
-            statusText += '✅ *Ваша подписка активна!* Добро пожаловать в личный кабинет.';
-            keyboard = personalCabinetKeyboard;
-        } else if (user.status === 'active') {
+        if (user.status === 'active') {
             const timeLeft = user.expireDate - new Date();
             const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-            statusText += `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
+            statusText = `✅ *Ваша подписка активна!* Доступно ещё *${daysLeft}* дней.\n`;
 
             if (daysLeft < 7) {
                 statusText += `\n⚠️ Ваша подписка скоро истекает. Чтобы продлить её, нажмите кнопку ниже.\n`;
-                keyboard = Markup.inlineKeyboard([
-                    [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
-                    [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-                ]);
-            } else {
-                 keyboard = Markup.inlineKeyboard([
-                    [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
-                    [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
-                    [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-                ]);
+                keyboardButtons.push([{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }]);
             }
+            keyboardButtons.push(
+                [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }]
+            );
+
         } else if (user.status === 'inactive') {
-            statusText += '❌ *Ваша подписка неактивна.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.';
-            keyboard = Markup.inlineKeyboard([
-                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-            ]);
+            statusText = '❌ *Ваша подписка неактивна.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.';
+            keyboardButtons.push(
+                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
+            );
+
         } else if (user.status === 'pending') {
-            statusText += '⏳ *Ваш платёж на проверке.* Пожалуйста, подождите, пока администратор подтвердит его.';
-            keyboard = Markup.inlineKeyboard([
-                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-            ]);
+            statusText = '⏳ *Ваш платёж на проверке.* Пожалуйста, подождите, пока администратор подтвердит его.';
+            keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
+
         } else if (user.status === 'rejected') {
-            statusText += '❌ *Ваш платёж был отклонён.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
-            keyboard = Markup.inlineKeyboard([
-                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
-            ]);
+            statusText = '❌ *Ваш платёж был отклонён.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
+            keyboardButtons.push(
+                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
+            );
         }
-        
-        await ctx.reply(statusText, { 
-            parse_mode: 'Markdown', 
-            reply_markup: keyboard 
-        });
+
+        keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
+
+        await ctx.reply(
+            `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: keyboardButtons
+                }
+            }
+        );
+
     } catch (error) {
         console.error('Ошибка в handleStart:', error);
         await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
@@ -111,6 +99,7 @@ exports.checkSubscriptionStatus = async (ctx) => {
                 { parse_mode: 'Markdown' }
             );
         } else {
+            // Если дата истечения в прошлом, но статус 'active', обновляем его
             user.status = 'inactive';
             await user.save();
             await ctx.reply('❌ Ваша подписка истекла. Пожалуйста, продлите её.');
@@ -169,25 +158,18 @@ exports.handleVpnConfigured = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
     try {
         await User.findOneAndUpdate({ userId }, { vpnConfigured: true });
-        
-        // Объединяем два сообщения в одно, чтобы кнопки не пропадали
-        await ctx.reply(
-            'Поздравляем! VPN успешно настроен. Приятного пользования!\n\n' +
-            'Ваш личный кабинет:',
-            { 
-                reply_markup: personalCabinetKeyboard 
-            }
-        );
-
         await ctx.answerCbQuery('✅ Отлично!');
+        await ctx.reply('Поздравляем! VPN успешно настроен. Приятного пользования!');
         await ctx.deleteMessage();
 
+        // Уведомление администратора об успехе настройки
         const user = await User.findOne({ userId });
         const userName = user?.firstName || user?.username || 'Не указано';
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
             `🎉 *Пользователь ${userName} (ID: ${userId}) успешно настроил VPN.*`
         );
+
     } catch (error) {
         console.error(`Ошибка при обработке vpn_configured для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Произошла ошибка.');
