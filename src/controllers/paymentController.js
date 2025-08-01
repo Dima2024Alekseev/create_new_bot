@@ -3,6 +3,7 @@ const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
 const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers');
 const { createVpnClient } = require('../services/vpnService');
+const path = require('path');
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -11,60 +12,57 @@ const { createVpnClient } = require('../services/vpnService');
  */
 exports.handlePhoto = async (ctx) => {
     const { id, first_name, username } = ctx.from;
-
     // Если это админ, и он случайно отправил фото, игнорируем его.
     if (id === parseInt(process.env.ADMIN_ID)) {
         return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
     }
-
     // Получаем ID последнего (самого большого) фото из массива
     const photo = ctx.message.photo.pop();
-
     try {
         // Находим или создаем пользователя и обновляем информацию о платеже
         await User.findOneAndUpdate(
             { userId: id },
             {
                 userId: id,
-                username: username || first_name,
+                username: username || first_name, // Сохраняем username или first_name для пользователя
                 firstName: first_name,
                 paymentPhotoId: photo.file_id,
-                paymentPhotoDate: new Date(),
-                status: 'pending'
+                paymentPhotoDate: new Date(), // Добавлено: сохраняет дату отправки скриншота
+                status: 'pending' // Статус ожидания проверки
             },
-            { upsert: true, new: true }
+            { upsert: true, new: true } // Создать, если не существует; вернуть обновленный документ
         );
-
         // Подготавливаем кнопки для администратора
         const keyboard = Markup.inlineKeyboard([
             Markup.button.callback('✅ Принять', `approve_${id}`),
             Markup.button.callback('❌ Отклонить', `reject_${id}`)
         ]);
-
+        // НОВОЕ: Более надёжное формирование строки с именем пользователя для отображения
         let userDisplay = '';
+        // Всегда экранируем first_name (если есть, иначе используем заглушку)
         const safeFirstName = escapeMarkdown(first_name || 'Не указано');
-
         if (username) {
+            // Если username есть, используем его с @ и экранируем
             userDisplay = `${safeFirstName} (@${escapeMarkdown(username)})`;
         } else {
+            // Если username нет, используем только safeFirstName и явно указываем отсутствие username
             userDisplay = `${safeFirstName} (без username)`;
         }
+        // Если по какой-то причине first_name тоже пустой (редко, но возможно)
         if (!first_name && !username) {
             userDisplay = `Неизвестный пользователь`;
         }
-
         await ctx.telegram.sendPhoto(
             process.env.ADMIN_ID,
             photo.file_id,
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
-                    `Имя: ${userDisplay}\n` +
+                    `Имя: ${userDisplay}\n` + // ИСПОЛЬЗУЕМ НОВУЮ СТРОКУ userDisplay
                     `ID: ${id}`,
-                parse_mode: 'Markdown',
-                ...keyboard
+                parse_mode: 'Markdown', // Указываем режим парсинга для Markdown в подписи
+                ...keyboard // Разворачиваем кнопки
             }
         );
-
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
     } catch (error) {
         console.error('Ошибка при обработке фото/платежа:', error);
@@ -81,12 +79,9 @@ exports.handleApprove = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-
     const userId = parseInt(ctx.match[1]);
-
     try {
         const user = await User.findOne({ userId });
-
         let newExpireDate = new Date();
         if (user && user.expireDate && user.expireDate > new Date()) {
             newExpireDate = new Date(user.expireDate);
@@ -109,6 +104,7 @@ exports.handleApprove = async (ctx) => {
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
+        // НОВАЯ ЛОГИКА: Обработка первого платежа
         if (updatedUser.subscriptionCount === 1) {
             try {
                 let clientName;
@@ -118,34 +114,41 @@ exports.handleApprove = async (ctx) => {
                 } else {
                     clientName = `telegram_${userId}`;
                 }
-
                 if (clientName.length === 0) {
                     clientName = `telegram_${userId}`;
                 }
 
                 const configContent = await createVpnClient(clientName);
-
+                
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
                     `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n` +
-                    `📁 Ваш файл конфигурации VPN:\n\n` +
-                    `После загрузки файла, пожалуйста, нажмите кнопку ниже, чтобы получить инструкцию:`,
-                    {
-                        parse_mode: 'Markdown',
-                        reply_markup: {
-                            inline_keyboard: [
-                                [
-                                    Markup.button.callback('▶️ Получить инструкцию по настройке', `send_vpn_info_${userId}`),
-                                ]
-                            ]
-                        }
-                    }
+                    `📁 Ваш файл конфигурации VPN:`,
+                    { parse_mode: 'Markdown' }
                 );
 
                 await ctx.telegram.sendDocument(
                     userId,
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+                );
+
+                const videoPath = path.join(__dirname, '../videos/instruction.mp4');
+                await ctx.telegram.sendVideo(
+                    userId,
+                    { source: videoPath },
+                    { caption: '🎬 *Видеоинструкция* по настройке VPN:' }
+                );
+
+                await ctx.telegram.sendMessage(
+                    userId,
+                    'После просмотра видео, пожалуйста, сообщите, удалось ли вам настроить VPN:',
+                    Markup.inlineKeyboard([
+                        [
+                            Markup.button.callback('✅ Успешно настроил', `vpn_configured_${userId}`),
+                            Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${userId}`)
+                        ]
+                    ])
                 );
 
             } catch (vpnError) {
@@ -161,6 +164,7 @@ exports.handleApprove = async (ctx) => {
                 );
             }
         } else {
+            // ЛОГИКА: Обработка продления подписки
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
                 `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
@@ -169,7 +173,6 @@ exports.handleApprove = async (ctx) => {
                 { parse_mode: 'Markdown' }
             );
         }
-
     } catch (error) {
         console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при одобрении платежа!');
@@ -186,9 +189,7 @@ exports.handleReject = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-
     const userId = parseInt(ctx.match[1]);
-
     try {
         await User.findOneAndUpdate(
             { userId },
@@ -198,7 +199,6 @@ exports.handleReject = async (ctx) => {
                 paymentPhotoDate: null
             }
         );
-
         await ctx.telegram.sendMessage(
             userId,
             '❌ *Платёж отклонён*\n\n' +
@@ -209,7 +209,6 @@ exports.handleReject = async (ctx) => {
             '*Попробуйте отправить чек ещё раз.*',
             { parse_mode: 'Markdown' }
         );
-
         await ctx.answerCbQuery('❌ Платёж отклонён');
         await ctx.deleteMessage();
     } catch (error) {

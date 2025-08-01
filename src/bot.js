@@ -1,5 +1,4 @@
-require('dotenv').config({ path: __dirname + '/../primer.env' });
-
+require('dotenv').config({ path: __dirname + '/../.env' });
 const { Telegraf, session, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
@@ -10,7 +9,6 @@ const {
   checkSubscriptionStatus,
   extendSubscription,
   promptForQuestion,
-  requestVpnInfo,
   handleVpnConfigured,
   promptVpnFailure,
   promptCancelSubscription,
@@ -56,77 +54,50 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для ответов АДМИНА, отправки инструкций и обработки проблем ---
+// --- Middleware для ответов АДМИНА и обработки проблем ---
 bot.use(async (ctx, next) => {
   console.log(`[Middleware Debug] Сообщение от: ${ctx.from?.id}`);
   console.log(`[Middleware Debug] awaitingAnswerFor: ${ctx.session?.awaitingAnswerFor}`);
-  console.log(`[Middleware Debug] awaitingVpnVideoFor: ${ctx.session?.awaitingVpnVideoFor}`);
   console.log(`[Middleware Debug] awaitingAnswerVpnIssueFor: ${ctx.session?.awaitingAnswerVpnIssueFor}`);
   console.log(`[Middleware Debug] awaitingVpnTroubleshoot: ${ctx.session?.awaitingVpnTroubleshoot}`);
   console.log(`[Middleware Debug] Тип сообщения: ${ctx.message ? Object.keys(ctx.message).join(', ') : 'No message object'}`);
 
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
-    if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
-      console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
-      await handleAnswer(ctx);
-      return;
-    }
-
-    if (ctx.session?.awaitingVpnVideoFor && ctx.message?.video) {
-      const targetUserId = ctx.session.awaitingVpnVideoFor;
-      try {
-        console.log(`[AdminMiddleware] Отправка видео пользователю ${targetUserId}`);
-        await ctx.telegram.sendVideo(targetUserId, ctx.message.video.file_id, {
-          caption: '🎬 Видеоинструкция по настройке VPN:'
-        });
-        await ctx.reply(`✅ Видеоинструкция успешно отправлена пользователю ${targetUserId}.`);
-
-        await ctx.telegram.sendMessage(
-          targetUserId,
-          'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже. Если у вас возникли проблемы:',
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback('✅ Успешно настроил', `vpn_configured_${targetUserId}`),
-              Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${targetUserId}`)
-            ]
-          ])
-        );
-
-      } catch (error) {
-        console.error(`Ошибка при отправке видео пользователю ${targetUserId}:`, error);
-        await ctx.reply(`⚠️ Произошла ошибка при отправке видео пользователю ${targetUserId}.`);
-      } finally {
-        ctx.session.awaitingVpnVideoFor = null;
-      }
-      return;
-    }
-
-    if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
-      const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
-      const adminAnswer = ctx.message.text;
-
-      try {
-        await ctx.telegram.sendMessage(
-          targetUserId,
-          `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
-          `"${adminAnswer}"`,
-          { parse_mode: 'Markdown' }
-        );
-        await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
-      } catch (error) {
-        console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
-        await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
-      } finally {
-        ctx.session.awaitingAnswerVpnIssueFor = null;
-      }
-      return;
-    }
-
-    if (ctx.message) {
-      console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
-    }
+  // Обработка ответа админа на вопрос
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && ctx.session?.awaitingAnswerFor && ctx.message?.text) {
+    console.log(`[AdminMiddleware] Обработка ответа на вопрос для пользователя ${ctx.session.awaitingAnswerFor}`);
+    await handleAnswer(ctx);
+    return;
   }
 
+  // ЭТОТ БЛОК БЫЛ УДАЛЕН: Ручная отправка видеоинструкции теперь автоматизирована
+  // if (ctx.session?.awaitingVpnVideoFor && ctx.message?.video) { ... }
+
+  // Обработка ответа админа на проблему с VPN
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
+    const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
+    const adminAnswer = ctx.message.text;
+    try {
+      await ctx.telegram.sendMessage(
+        targetUserId,
+        `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
+        `"${adminAnswer}"`,
+        { parse_mode: 'Markdown' }
+      );
+      await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
+    } catch (error) {
+      console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
+      await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
+    } finally {
+      ctx.session.awaitingAnswerVpnIssueFor = null;
+    }
+    return;
+  }
+
+  if (ctx.message) {
+    console.log(`[AdminMiddleware] Сообщение админа не соответствует текущему состоянию ожидания: ${JSON.stringify(ctx.message)}`);
+  }
+
+  // Обработка описания проблемы от пользователя
   if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
@@ -159,7 +130,6 @@ bot.use(async (ctx, next) => {
 
   return next();
 });
-
 
 // --- Обработчики команд ---
 bot.start(async (ctx) => {
@@ -197,20 +167,16 @@ bot.on('text', async (ctx, next) => {
   }
 });
 
-
 // Админские команды
 bot.command('admin', checkAdminMenu);
 bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
 
-
 // Обработка платежей (фото)
 bot.on('photo', handlePhoto);
 
-
 // --- Обработчики кнопок (callback_data) ---
-
 // Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
@@ -228,17 +194,8 @@ bot.action(/answer_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-// НОВЫЙ ОБРАБОТЧИК: Теперь кнопка send_instruction_to_(\d+) только для видео
-bot.action(/send_instruction_to_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  const targetUserId = ctx.match[1];
-  ctx.session.awaitingVpnFileFor = null; // Файл теперь не нужен
-  ctx.session.awaitingVpnVideoFor = targetUserId; // Запрашиваем только видео
-  await ctx.reply(`Загрузите *видеоинструкцию* для пользователя ${targetUserId}:`);
-  await ctx.answerCbQuery();
-});
+// ЭТОТ ОБРАБОТЧИК БЫЛ УДАЛЕН, ТАК КАК БОЛЬШЕ НЕ НУЖЕН:
+// bot.action(/send_instruction_to_(\d+)/, async (ctx) => { ... });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
@@ -250,12 +207,11 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-
 // Кнопки пользователя
 bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
-bot.action(/send_vpn_info_(\d+)/, requestVpnInfo);
+// bot.action(/send_vpn_info_(\d+)/, requestVpnInfo); - ЭТОТ ОБРАБОТЧИК БЫЛ УДАЛЕН
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 
@@ -264,14 +220,12 @@ bot.action('cancel_subscription_confirm', promptCancelSubscription);
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 
-
 // --- Напоминания ---
 setupReminders(bot);
 
-
 // --- Запуск ---
 bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+  .then(() => console.log('🤖 Бот запущен'))
   .catch(err => {
     console.error('🚨 Ошибка запуска:', err);
     process.exit(1);
