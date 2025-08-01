@@ -168,10 +168,9 @@ exports.promptForQuestion = async (ctx) => {
 exports.handleVpnConfigured = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
     try {
-        // Устанавливаем vpnConfigured в true
         await User.findOneAndUpdate({ userId }, { vpnConfigured: true });
 
-        // Объединяем два сообщения в одно, чтобы кнопки не пропадали
+        // Отправляем сообщение и сразу же отображаем клавиатуру личного кабинета
         await ctx.reply(
             'Поздравляем! VPN успешно настроен. Приятного пользования!\n\n' +
             'Ваш личный кабинет:',
