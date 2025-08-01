@@ -31,14 +31,11 @@ api.interceptors.request.use(config => {
 
 // Перехватчик ответов для сохранения cookies
 api.interceptors.response.use(response => {
-    // Проверяем оба варианта названия заголовка
     const cookies = response.headers['set-cookie'] || response.headers['Set-Cookie'];
-
     if (cookies) {
         sessionCookies = Array.isArray(cookies) ? cookies.join('; ') : cookies;
         console.log('[DEBUG] Получены cookies:', sessionCookies);
     }
-
     return response;
 }, error => {
     console.error('[DEBUG] Ошибка запроса:', {
@@ -52,19 +49,16 @@ api.interceptors.response.use(response => {
 async function login() {
     try {
         console.log('[DEBUG] Попытка авторизации...');
-
         const response = await api.post('/api/session', {
             password: API_CONFIG.PASSWORD
         }, {
             validateStatus: (status) => status === 204,
-            transformResponse: [(data) => data] // Важно для обработки пустых ответов
+            transformResponse: [(data) => data]
         });
-
         if (!sessionCookies) {
             console.error('[DEBUG] Заголовки ответа:', response.headers);
             throw new Error('Не удалось получить cookies авторизации');
         }
-
         console.log('🔑 Авторизация успешна');
         return true;
     } catch (error) {
@@ -122,7 +116,6 @@ async function getClientConfigFromText(clientId) {
         const response = await api.get(`/api/wireguard/client/${clientId}/configuration`, {
             responseType: 'text'
         });
-
         const configText = response.data;
         const privateKeyMatch = configText.match(/PrivateKey = (.+)/);
         const presharedKeyMatch = configText.match(/PresharedKey = (.+)/);
@@ -162,14 +155,29 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25`;
 }
 
-// НОВАЯ ФУНКЦИЯ ДЛЯ УДАЛЕНИЯ КЛИЕНТА
-async function revokeClient(clientId) {
+// НОВАЯ ФУНКЦИЯ ДЛЯ ОТКЛЮЧЕНИЯ КЛИЕНТА
+async function disableClient(clientId) {
     try {
-        console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
-        await api.delete(`/api/wireguard/client/${clientId}`);
-        console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
+        console.log(`[DEBUG] Отключение клиента с ID: ${clientId}`);
+        await api.patch(`/api/wireguard/client/${clientId}`, { enabled: false });
+        console.log(`✅ Клиент с ID "${clientId}" успешно отключен`);
     } catch (error) {
-        console.error('❌ Ошибка удаления клиента:', {
+        console.error('❌ Ошибка отключения клиента:', {
+            status: error.response?.status,
+            data: error.response?.data
+        });
+        throw error;
+    }
+}
+
+// НОВАЯ ФУНКЦИЯ ДЛЯ ВКЛЮЧЕНИЯ КЛИЕНТА
+async function enableClient(clientId) {
+    try {
+        console.log(`[DEBUG] Включение клиента с ID: ${clientId}`);
+        await api.patch(`/api/wireguard/client/${clientId}`, { enabled: true });
+        console.log(`✅ Клиент с ID "${clientId}" успешно включен`);
+    } catch (error) {
+        console.error('❌ Ошибка включения клиента:', {
             status: error.response?.status,
             data: error.response?.data
         });
@@ -201,13 +209,12 @@ exports.createVpnClient = async (clientName) => {
     }
 };
 
-// НОВЫЙ ЭКСПОРТИРУЕМЫЙ МЕТОД ДЛЯ ОТЗЫВА КЛИЕНТА
 exports.revokeVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало отзыва клиента: ${clientName}`);
         await login();
         const clientData = await getClientData(clientName);
-        await revokeClient(clientData.id);
+        await disableClient(clientData.id);
         console.log(`✅ Клиент "${clientName}" успешно отозван.`);
     } catch (error) {
         console.error('🔥 Критическая ошибка:', {
@@ -215,5 +222,21 @@ exports.revokeVpnClient = async (clientName) => {
             stack: error.stack
         });
         throw new Error(`Не удалось отозвать VPN-клиента: ${error.message}`);
+    }
+};
+
+exports.enableVpnClient = async (clientName) => {
+    try {
+        console.log(`⌛ Начало включения клиента: ${clientName}`);
+        await login();
+        const clientData = await getClientData(clientName);
+        await enableClient(clientData.id);
+        console.log(`✅ Клиент "${clientName}" успешно включен.`);
+    } catch (error) {
+        console.error('🔥 Критическая ошибка:', {
+            message: error.message,
+            stack: error.stack
+        });
+        throw new Error(`Не удалось включить VPN-клиента: ${error.message}`);
     }
 };
