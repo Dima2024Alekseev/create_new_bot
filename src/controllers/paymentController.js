@@ -93,7 +93,6 @@ exports.handleApprove = async (ctx) => {
             newExpireDate = new Date(user.expireDate);
         }
         newExpireDate.setMonth(newExpireDate.getMonth() + 1);
-        newExpireDate.setHours(23, 59, 59, 999);
 
         const updatedUser = await User.findOneAndUpdate(
             { userId },
