@@ -101,7 +101,7 @@ exports.handleApprove = async (ctx) => {
         if (user && user.expireDate && user.expireDate > new Date()) {
             newExpireDate = new Date(user.expireDate);
         }
-        newExpireDate.setMonth(newExpireDate.getMonth() + 1);
+        newExpireDate.setMinutes(newExpireDate.getMinutes() + 1);
 
         const updatedUser = await User.findOneAndUpdate(
             { userId },
