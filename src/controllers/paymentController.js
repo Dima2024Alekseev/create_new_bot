@@ -3,6 +3,7 @@ const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
 const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers');
 const { createVpnClient } = require('../services/vpnService');
+const path = require('path');
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -129,23 +130,31 @@ exports.handleApprove = async (ctx) => {
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
                     `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n` +
-                    `📁 Ваш файл конфигурации VPN:\n\n` +
-                    `После загрузки файла, пожалуйста, нажмите кнопку ниже, чтобы получить инструкцию:`,
-                    {
-                        parse_mode: 'Markdown',
-                        reply_markup: {
-                            inline_keyboard: [
-                                [
-                                    Markup.button.callback('▶️ Получить инструкцию по настройке', `send_vpn_info_${userId}`),
-                                ]
-                            ]
-                        }
-                    }
+                    `📁 Ваш файл конфигурации VPN и видеоинструкция отправлены ниже.`,
+                    { parse_mode: 'Markdown' }
                 );
 
                 await ctx.telegram.sendDocument(
                     userId,
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+                );
+
+                const videoPath = '/root/create_new_bot/src/src/videos/instruction.mp4';
+                await ctx.telegram.sendVideo(
+                    userId,
+                    { source: videoPath },
+                    { caption: '🎬 Видеоинструкция по настройке VPN' }
+                );
+
+                await ctx.telegram.sendMessage(
+                    userId,
+                    'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже. Если у вас возникли проблемы:',
+                    Markup.inlineKeyboard([
+                        [
+                            Markup.button.callback('✅ Успешно настроил', `vpn_configured_${userId}`),
+                            Markup.button.callback('❌ Не справился с настройкой', `vpn_failed_${userId}`)
+                        ]
+                    ])
                 );
 
             } catch (vpnError) {
