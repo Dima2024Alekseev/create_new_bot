@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
@@ -74,7 +76,7 @@ exports.handlePhoto = async (ctx) => {
 
 /**
  * Обрабатывает одобрение платежа администратором.
- * Активирует подписку пользователя и отправляет уведомление.
+ * Активирует подписку пользователя и отправляет уведомление и видеоинструкцию.
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handleApprove = async (ctx) => {
@@ -125,21 +127,15 @@ exports.handleApprove = async (ctx) => {
 
                 const configContent = await createVpnClient(clientName);
 
+                // Отправляем сообщение и конфиг
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
                     `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n` +
                     `📁 Ваш файл конфигурации VPN:\n\n` +
-                    `После загрузки файла, пожалуйста, нажмите кнопку ниже, чтобы получить инструкцию:`,
+                    `После загрузки файла, ниже вы найдёте видеоинструкцию по настройке VPN:`,
                     {
                         parse_mode: 'Markdown',
-                        reply_markup: {
-                            inline_keyboard: [
-                                [
-                                    Markup.button.callback('▶️ Получить инструкцию по настройке', `send_vpn_info_${userId}`),
-                                ]
-                            ]
-                        }
                     }
                 );
 
@@ -147,6 +143,19 @@ exports.handleApprove = async (ctx) => {
                     userId,
                     { source: Buffer.from(configContent), filename: `${clientName}.conf` }
                 );
+
+                // Путь к видеоинструкции
+                const videoPath = path.resolve(__dirname, '../src/videos/instruction.mp4');
+
+                // Проверка, что видео существует
+                if (fs.existsSync(videoPath)) {
+                    await ctx.telegram.sendVideo(userId, { source: fs.createReadStream(videoPath) }, {
+                        caption: '🎬 Видеоинструкция по настройке VPN',
+                    });
+                } else {
+                    await ctx.telegram.sendMessage(userId, '⚠️ Видеоинструкция временно недоступна.');
+                    console.error('Видеоинструкция не найдена по пути:', videoPath);
+                }
 
             } catch (vpnError) {
                 console.error(`Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
