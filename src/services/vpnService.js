@@ -144,65 +144,32 @@ PersistentKeepalive = 25`;
 }
 
 // ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ОТКЛЮЧЕНИЯ КЛИЕНТА
-// Теперь она получает весь список клиентов и изменяет нужный
+// Использует PUT-запрос на специальный эндпоинт
 async function disableClient(clientId) {
     try {
-        console.log(`[DEBUG] Отключение клиента с ID: ${clientId} (PUT)`);
-
-        // 1. Получаем ВЕСЬ список клиентов
-        const getResponse = await api.get('/api/wireguard/client');
-        const clients = getResponse.data;
-
-        // 2. Находим нужного клиента по ID
-        const clientData = clients.find(c => c.id === clientId);
-
-        if (!clientData) {
-            throw new Error(`Клиент с ID "${clientId}" не найден в списке`);
-        }
-
-        // 3. Меняем поле 'enabled' на false
-        clientData.enabled = false;
-
-        // 4. Отправляем PUT-запрос с обновлённым объектом
-        await api.put(`/api/wireguard/client/${clientId}`, clientData);
+        console.log(`[DEBUG] Отключение клиента с ID: ${clientId}`);
+        await api.put(`/api/wireguard/client/${clientId}/disable`);
         console.log(`✅ Клиент с ID "${clientId}" успешно отключен`);
     } catch (error) {
         console.error('❌ Ошибка отключения клиента:', {
             status: error.response?.status,
-            data: error.response?.data,
-            message: error.message
+            data: error.response?.data
         });
         throw error;
     }
 }
 
 // ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ВКЛЮЧЕНИЯ КЛИЕНТА
+// Использует PUT-запрос на специальный эндпоинт
 async function enableClient(clientId) {
     try {
-        console.log(`[DEBUG] Включение клиента с ID: ${clientId} (PUT)`);
-
-        // 1. Получаем ВЕСЬ список клиентов
-        const getResponse = await api.get('/api/wireguard/client');
-        const clients = getResponse.data;
-        
-        // 2. Находим нужного клиента по ID
-        const clientData = clients.find(c => c.id === clientId);
-        
-        if (!clientData) {
-            throw new Error(`Клиент с ID "${clientId}" не найден в списке`);
-        }
-
-        // 3. Меняем поле 'enabled' на true
-        clientData.enabled = true;
-        
-        // 4. Отправляем PUT-запрос с обновлённым объектом
-        await api.put(`/api/wireguard/client/${clientId}`, clientData);
+        console.log(`[DEBUG] Включение клиента с ID: ${clientId}`);
+        await api.put(`/api/wireguard/client/${clientId}/enable`);
         console.log(`✅ Клиент с ID "${clientId}" успешно включен`);
     } catch (error) {
         console.error('❌ Ошибка включения клиента:', {
             status: error.response?.status,
-            data: error.response?.data,
-            message: error.message
+            data: error.response?.data
         });
         throw error;
     }
