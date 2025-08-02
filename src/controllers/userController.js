@@ -2,13 +2,9 @@ const User = require('../models/User');
 const Question = require('../models/Question');
 const { Markup } = require('telegraf');
 const { formatDate, formatDuration, paymentDetails } = require('../utils/helpers');
-const { createVpnClient } = require('../services/vpnService');
+const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
 
-/**
- * Обрабатывает команду /start, приветствуя пользователя и отображая главное меню.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
     const { first_name, username } = ctx.from;
@@ -72,9 +68,6 @@ exports.handleStart = async (ctx) => {
             );
         }
 
-        // ⚠️ ИСПРАВЛЕНО: Эта строка удалена, так как дублировала кнопку "Задать вопрос".
-        // keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
-
         await ctx.reply(
             `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
             {
@@ -91,10 +84,6 @@ exports.handleStart = async (ctx) => {
     }
 };
 
-/**
- * Проверяет статус подписки пользователя.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.checkSubscriptionStatus = async (ctx) => {
     const userId = ctx.from.id;
     try {
@@ -128,10 +117,6 @@ exports.checkSubscriptionStatus = async (ctx) => {
     }
 };
 
-/**
- * Запускает процесс продления подписки, отправляя реквизиты.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.extendSubscription = async (ctx) => {
     const userId = ctx.from.id;
     const { first_name, username } = ctx.from;
@@ -155,20 +140,11 @@ exports.extendSubscription = async (ctx) => {
     }
 };
 
-/**
- * Отправляет пользователю сообщение с предложением задать вопрос.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
 };
 
-
-/**
- * Обрабатывает запрос пользователя на отмену подписки.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.promptCancelSubscription = async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply(
@@ -184,47 +160,58 @@ exports.promptCancelSubscription = async (ctx) => {
     );
 };
 
-/**
- * Финальное подтверждение отмены подписки.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.cancelSubscriptionFinal = async (ctx) => {
     const userId = ctx.from.id;
     const { first_name, username } = ctx.from;
     const name = first_name || username || `Пользователь ${userId}`;
 
     try {
-        await User.findOneAndUpdate({ userId }, { status: 'inactive', expireDate: null });
+        const user = await User.findOne({ userId });
 
-        await ctx.answerCbQuery('Подписка отменена.');
-        await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN будет прекращен.');
+        if (!user) {
+            await ctx.answerCbQuery('❌ Пользователь не найден.');
+            return ctx.editMessageText('Ошибка: пользователь не найден.');
+        }
 
+        // Отключаем VPN-клиента, если он есть
+        if (user.vpnClientName) {
+            await revokeVpnClient(user.vpnClientName);
+            console.log(`🔒 VPN отключён для ${user.vpnClientName} (ID: ${userId})`);
+        }
+
+        // Обновляем статус пользователя
+        await User.updateOne(
+            { userId },
+            { 
+                status: 'inactive', 
+                expireDate: null,
+                vpnConfigured: false
+            }
+        );
+
+        await ctx.answerCbQuery('✅ Подписка отменена.');
+        await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN прекращён.');
+
+        // Уведомляем админа
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.`,
+            `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.\n` +
+            `VPN-клиент *${user.vpnClientName || 'не указан'}* отключён.`,
             { parse_mode: 'Markdown' }
         );
 
     } catch (error) {
-        console.error(`Ошибка при финальной отмене подписки для пользователя ${userId}:`, error);
-        await ctx.answerCbQuery('⚠️ Произошла ошибка при отмене подписки.');
-        await ctx.reply('Произошла ошибка при отмене подписки.');
+        console.error(`Ошибка при отмене подписки (ID: ${userId}):`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при отмене подписки!');
+        await ctx.reply('Произошла ошибка. Попробуйте позже или свяжитесь с админом.');
     }
 };
 
-/**
- * Отмена запроса на отмену подписки.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.cancelSubscriptionAbort = async (ctx) => {
     await ctx.answerCbQuery('Отмена отменена.');
     await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню (/start).');
 };
 
-/**
- * Обрабатывает ситуацию, когда пользователь подтвердил, что VPN настроен успешно.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.handleVpnConfigured = async (ctx) => {
     const userId = ctx.match[1];
     const user = await User.findOne({ userId });
@@ -250,10 +237,6 @@ exports.handleVpnConfigured = async (ctx) => {
     }
 };
 
-/**
- * Отправляет администратору сообщение о проблеме с настройкой VPN.
- * @param {object} ctx - Объект контекста Telegraf.
- */
 exports.promptVpnFailure = async (ctx) => {
     const userId = ctx.from.id;
     await ctx.answerCbQuery();
