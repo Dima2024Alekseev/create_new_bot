@@ -42,7 +42,7 @@ exports.handleStart = async (ctx) => {
             } else {
                 const timeLeft = expireDate - now;
                 const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-                const duration = formatDuration(timeLeft); // Используем новую функцию
+                const duration = formatDuration(timeLeft);
                 statusText = `✅ *Ваша подписка активна!* Осталось ещё *${duration}*.\n`;
 
                 if (daysLeft < 7) {
@@ -108,12 +108,11 @@ exports.checkSubscriptionStatus = async (ctx) => {
         const timeLeft = user.expireDate - now;
 
         if (timeLeft > 0) {
-            // ИЗМЕНЕНИЕ: Используем новую функцию для форматирования длительности
             const duration = formatDuration(timeLeft);
             await ctx.reply(
                 `✅ *Ваша подписка активна!*` +
                 `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
-                `\nОсталось: *${duration}*`, // Отображаем дни, часы и минуты
+                `\nОсталось: *${duration}*`,
                 { parse_mode: 'Markdown' }
             );
         } else {
@@ -148,6 +147,8 @@ exports.extendSubscription = async (ctx) => {
                 disable_web_page_preview: true
             }
         );
+        // ⚠️ НОВОЕ: Установка флага, чтобы бот ожидал скриншот оплаты
+        ctx.session.awaitingPaymentProof = true;
     } catch (error) {
         console.error('Ошибка в extendSubscription:', error);
         await ctx.reply('⚠️ Произошла ошибка при отправке реквизитов.');
@@ -204,8 +205,6 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             { parse_mode: 'Markdown' }
         );
 
-        // TODO: Добавить логику для отзыва доступа на VPN-сервере, если это возможно через API
-        // Например: await vpnService.revokeAccess(userId);
     } catch (error) {
         console.error(`Ошибка при финальной отмене подписки для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Произошла ошибка при отмене подписки.');

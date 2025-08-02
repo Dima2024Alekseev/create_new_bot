@@ -11,6 +11,11 @@ const path = require('path');
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handlePhoto = async (ctx) => {
+    // ⚠️ НОВОЕ: Проверка, находится ли пользователь в состоянии ожидания скриншота
+    if (!ctx.session.awaitingPaymentProof) {
+        return ctx.reply('⚠️ Чтобы отправить скриншот, пожалуйста, сначала нажмите кнопку "Оплатить подписку" в главном меню.');
+    }
+
     const { id, first_name, username } = ctx.from;
 
     if (id === parseInt(process.env.ADMIN_ID)) {
@@ -20,6 +25,8 @@ exports.handlePhoto = async (ctx) => {
     const user = await User.findOne({ userId: id });
 
     if (user && user.status === 'pending') {
+        // ⚠️ Сбросим флаг, чтобы пользователь не мог отправить ещё один скриншот
+        ctx.session.awaitingPaymentProof = false;
         return ctx.reply('⏳ Ваш скриншот уже на проверке у администратора. Пожалуйста, подождите.');
     }
 
@@ -68,9 +75,13 @@ exports.handlePhoto = async (ctx) => {
         );
 
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+        // ⚠️ НОВОЕ: Сброс флага после успешной отправки скриншота
+        ctx.session.awaitingPaymentProof = false;
     } catch (error) {
         console.error('Ошибка при обработке фото/платежа:', error);
         await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
+        // ⚠️ НОВОЕ: Сброс флага при ошибке, чтобы избежать застревания пользователя в состоянии ожидания
+        ctx.session.awaitingPaymentProof = false;
     }
 };
 
