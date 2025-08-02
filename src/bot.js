@@ -1,7 +1,6 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
-// ⚠️ НОВОЕ: Импортируем LocalSession для сохранения состояния пользователей
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const User = require('./models/User');
@@ -18,7 +17,6 @@ const {
     cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-// ⚠️ ИЗМЕНЕНО: Импортируем из обновленного файла paymentController
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
@@ -32,7 +30,6 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
     }
 });
 
-// ⚠️ НОВОЕ: Включаем сессии в бота. Теперь ctx.session будет доступен.
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
 connectDB().catch(err => {
@@ -131,32 +128,17 @@ bot.start(async (ctx) => {
 });
 
 bot.on('text', async (ctx, next) => {
-    if (ctx.session?.awaitingVpnTroubleshoot || ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor)) {
         return next();
     }
     
-    // ⚠️ НОВОЕ: Добавляем проверку для состояния ожидания оплаты
+    // Если пользователь ожидает скриншот, то обычный текст игнорируем
     if (ctx.session?.awaitingPaymentProof) {
-        // Игнорируем текстовые сообщения в режиме ожидания фото
         return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
     }
 
+    // Если сообщение не является командой, обрабатываем его как вопрос
     if (!ctx.message.text.startsWith('/')) {
-        const userId = ctx.from.id;
-        const user = await User.findOne({ userId });
-
-        if (user && (user.status === 'inactive' || user.status === 'rejected') && !ctx.session?.awaitingAnswerFor) {
-            await ctx.reply(
-                'Мы не получили ваш скриншот оплаты. 😔\n\n' +
-                'Возможно, у вас включены настройки конфиденциальности, которые мешают отправке медиафайлов ботам, ' +
-                'или возникла другая ошибка. Пожалуйста, убедитесь, что ваш аккаунт не скрыт, ' +
-                'и попробуйте отправить скриншот ещё раз.\n\n' +
-                'Если вы не хотите полностью открывать свой аккаунт, вы можете **добавить этого бота в исключения** в настройках конфиденциальности ' +
-                'Telegram (Настройки -> Конфиденциальность).\n\n' +
-                'Если проблема сохраняется, свяжитесь с поддержкой. **Для этого просто напишите боту свой вопрос, и он незамедлительно перешлёт его администратору.**'
-            );
-            return;
-        }
         await handleQuestion(ctx);
     } else {
         return next();

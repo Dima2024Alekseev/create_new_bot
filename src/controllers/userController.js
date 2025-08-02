@@ -218,7 +218,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
  */
 exports.cancelSubscriptionAbort = async (ctx) => {
     await ctx.answerCbQuery('Отмена отменена.');
-    await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню.');
+    await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню (/start).');
 };
 
 /**

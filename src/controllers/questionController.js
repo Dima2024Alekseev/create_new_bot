@@ -1,130 +1,140 @@
-const { Markup } = require('telegraf');
+const User = require('../models/User');
 const Question = require('../models/Question');
-// ИЗМЕНЕНО: Импорт checkAdmin из нового модуля utils/auth
+const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
 const { formatDate } = require('../utils/helpers');
 
 /**
- * Обработка вопроса от пользователя
+ * Обрабатывает вопрос, заданный пользователем.
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handleQuestion = async (ctx) => {
-  if (ctx.message.text.startsWith('/') || !ctx.message.text) return;
-  try {
-    await Question.create({
-      userId: ctx.from.id,
-      username: ctx.from.username,
-      firstName: ctx.from.first_name,
-      questionText: ctx.message.text,
-      status: 'pending'
-    });
-    await ctx.reply('✅ Ваш вопрос успешно отправлен администратору.');
-    await notifyAdminAboutQuestion(ctx);
-  } catch (err) {
-    console.error('Ошибка при сохранении вопроса:', err);
-    await ctx.reply('⚠️ Не удалось отправить вопрос.');
-  }
-};
+    const userId = ctx.from.id;
+    const questionText = ctx.message.text;
 
-/**
- * Уведомление администратора о новом вопросе
- * @param {object} ctx - Объект контекста Telegraf.
- */
-async function notifyAdminAboutQuestion(ctx) {
-  try {
-    await ctx.telegram.sendMessage(
-      process.env.ADMIN_ID,
-      `❓ Новый вопрос от ${ctx.from.first_name} (@${ctx.from.username || 'нет'}):
-"${ctx.message.text}"
-ID пользователя: ${ctx.from.id}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('📝 Ответить', `answer_${ctx.from.id}`)],
-        [Markup.button.callback('👀 Все вопросы', 'list_questions')]
-      ])
-    );
-  } catch (err) {
-    console.error('Ошибка уведомления админа:', err);
-  }
-}
+    try {
+        const user = await User.findOne({ userId });
+        const name = user?.firstName || user?.username || 'Пользователь';
 
-/**
- * Обработка ответа на вопрос
- * @param {object} ctx - Объект контекста Telegraf.
- */
-exports.handleAnswer = async (ctx) => {
-  // ИЗМЕНЕНО: Использование checkAdmin из импорта
-  if (!checkAdmin(ctx)) {
-    return ctx.reply('🚫 Только для админа.');
-  }
+        const newQuestion = new Question({
+            userId,
+            text: questionText,
+            status: 'pending'
+        });
 
-  const userId = ctx.session.awaitingAnswerFor;
-  const answerText = ctx.message.text;
+        await newQuestion.save();
 
-  try {
-    const question = await Question.findOneAndUpdate(
-      { userId, status: 'pending' },
-      {
-        answerText,
-        status: 'answered',
-        answeredAt: new Date()
-      },
-      { new: true }
-    );
+        const questionId = newQuestion._id.toString();
 
-    if (!question) {
-      return ctx.reply('⚠️ Не найдено активных вопросов от этого пользователя.');
+        const keyboard = Markup.inlineKeyboard([
+            Markup.button.callback('➡️ Ответить', `answer_${questionId}`)
+        ]);
+
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `❓ *Новый вопрос от ${name}* (ID: ${userId}):\n` +
+            `\n${questionText}`,
+            { parse_mode: 'Markdown', ...keyboard }
+        );
+
+        // ⚠️ НОВОЕ: Проверяем статус пользователя для отправки более релевантного ответа
+        if (user && user.status === 'active') {
+            await ctx.reply('✅ Ваш вопрос отправлен администратору. Он ответит вам в ближайшее время.');
+        } else {
+            await ctx.reply(
+                '✅ Ваш вопрос отправлен администратору. Он ответит вам в ближайшее время.' +
+                '\n\n' +
+                'Чтобы получить доступ к VPN, пожалуйста, оплатите подписку. ' +
+                'Для этого нажмите кнопку "Оплатить подписку" в главном меню.'
+            );
+        }
+
+    } catch (error) {
+        console.error('Ошибка при обработке вопроса:', error);
+        await ctx.reply('⚠️ Произошла ошибка при отправке вашего вопроса.');
     }
-
-    await ctx.telegram.sendMessage(
-      userId,
-      `📩 *Ответ администратора:*\n"${answerText}"\n\nВаш исходный вопрос: "${question.questionText}"`,
-      { parse_mode: 'Markdown' }
-    );
-
-    await ctx.reply('✅ Ответ успешно отправлен пользователю.');
-    ctx.session.awaitingAnswerFor = null;
-  } catch (err) {
-    console.error('Ошибка при ответе на вопрос:', err);
-    await ctx.reply('⚠️ Не удалось отправить ответ.');
-  }
 };
 
 /**
- * Список всех вопросов
+ * Отображает список неотвеченных вопросов для администратора.
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.listQuestions = async (ctx) => {
-  // ИЗМЕНЕНО: Использование checkAdmin из импорта
-  if (!checkAdmin(ctx)) {
+    if (!checkAdmin(ctx)) {
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('🚫 Только для админа.');
+        }
+        return ctx.reply('🚫 Только для админа.');
+    }
+
     if (ctx.callbackQuery) {
-      await ctx.answerCbQuery('🚫 Только для админа.');
-    }
-    return ctx.reply('🚫 Только для админа.');
-  }
-
-  if (ctx.callbackQuery) {
-    await ctx.answerCbQuery('Загружаю вопросы...');
-  }
-
-  try {
-    const questions = await Question.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(10);
-
-    if (!questions.length) {
-      return ctx.reply('ℹ️ Нет ожидающих вопросов.');
+        await ctx.answerCbQuery('Загружаю вопросы...');
     }
 
-    let message = '📋 *Ожидающие ответа вопросы:*\n\n';
-    questions.forEach((q, i) => {
-      message += `${i + 1}. *Пользователь:* ${q.firstName} (@${q.username || 'нет'})\n`;
-      message += `*Вопрос:* "${q.questionText}"\n`;
-      message += `*Дата:* ${formatDate(q.createdAt)}\n\n`;
-    });
+    try {
+        const questions = await Question.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(10);
 
-    await ctx.replyWithMarkdown(message, Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Обновить', 'list_questions')]
-    ]));
-  } catch (err) {
-    console.error('Ошибка получения списка вопросов:', err);
-    await ctx.reply('⚠️ Не удалось загрузить список вопросов.');
-  }
+        if (!questions.length) {
+            return ctx.reply('ℹ️ Нет ожидающих вопросов.');
+        }
+
+        let message = '📋 *Ожидающие ответа вопросы:*\n\n';
+        const keyboardButtons = [];
+
+        for (const question of questions) {
+            const user = await User.findOne({ userId: question.userId });
+            const name = user?.firstName || user?.username || 'Неизвестный пользователь';
+            const questionId = question._id.toString();
+            const date = new Date(question.createdAt).toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' });
+
+            message += `*Вопрос от ${name}* (ID: ${question.userId}) ${date}:\n` +
+                `_${question.text.slice(0, 50)}..._\n\n`;
+
+            keyboardButtons.push(
+                Markup.button.callback(`➡️ Ответить на вопрос ${questionId.slice(-4)}`, `answer_${questionId}`)
+            );
+        }
+        
+        await ctx.reply(message, {
+            parse_mode: 'Markdown',
+            reply_markup: Markup.inlineKeyboard(keyboardButtons, { columns: 1 }).reply_markup
+        });
+
+    } catch (error) {
+        console.error('Ошибка получения списка вопросов:', error);
+        await ctx.reply('⚠️ Не удалось загрузить список вопросов.');
+    }
+};
+
+/**
+ * Обрабатывает ответ администратора на вопрос.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleAnswer = async (ctx) => {
+    const questionId = ctx.session.awaitingAnswerFor;
+    const answerText = ctx.message.text;
+
+    try {
+        const question = await Question.findById(questionId);
+        if (!question) {
+            return ctx.reply('❌ Вопрос не найден.');
+        }
+
+        await ctx.telegram.sendMessage(
+            question.userId,
+            `✅ *Ответ администратора на ваш вопрос:*\n\n` +
+            `"${answerText}"`,
+            { parse_mode: 'Markdown' }
+        );
+
+        question.status = 'answered';
+        question.answer = answerText;
+        await question.save();
+
+        await ctx.reply('✅ Ответ отправлен пользователю.');
+        ctx.session.awaitingAnswerFor = null;
+    } catch (error) {
+        console.error('Ошибка при отправке ответа:', error);
+        await ctx.reply('⚠️ Произошла ошибка при отправке ответа.');
+    }
 };
