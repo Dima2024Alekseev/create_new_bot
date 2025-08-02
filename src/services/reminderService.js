@@ -53,11 +53,12 @@ const checkExpiringSubscriptions = async (bot) => {
     for (const user of expiringUsers) {
       try {
         const daysLeft = Math.ceil((user.expireDate - now) / 86400000);
+        // Исправлено: Убираем старую переменную окружения и правильно используем paymentDetails с await
+        const paymentMessage = await paymentDetails(user.userId, user.firstName || user.username);
+
         await bot.telegram.sendMessage(
           user.userId,
-          `⚠️ *Ваша подписка истекает через ${daysLeft} дней!*\n\n` +
-          `Продлите VPN за ${process.env.VPN_PRICE} руб.\n\n` +
-          paymentDetails(user.userId, user.firstName || user.username),
+          `⚠️ *Ваша подписка истекает через ${daysLeft} дней!*\n\n` + paymentMessage,
           { parse_mode: 'Markdown', disable_web_page_preview: true }
         );
 
