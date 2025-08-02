@@ -182,8 +182,8 @@ exports.cancelSubscriptionFinal = async (ctx) => {
         // Обновляем статус пользователя
         await User.updateOne(
             { userId },
-            { 
-                status: 'inactive', 
+            {
+                status: 'inactive',
                 expireDate: null,
                 vpnConfigured: false
             }
