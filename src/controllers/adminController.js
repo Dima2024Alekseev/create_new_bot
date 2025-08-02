@@ -144,10 +144,6 @@ exports.checkAdminMenu = async (ctx) => {
                 `💰 Изменить цену (Текущая: ${currentPrice} ₽)`, 
                 'set_price_admin'
             )
-        ],
-        [
-            Markup.button.callback('📝 Рассылка', 'start_broadcast'),
-            Markup.button.callback('⚙️ Настройки', 'admin_settings')
         ]
     ]);
 
