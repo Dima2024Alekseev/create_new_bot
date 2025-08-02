@@ -72,7 +72,8 @@ exports.handleStart = async (ctx) => {
             );
         }
 
-        keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
+        // ⚠️ ИСПРАВЛЕНО: Эта строка удалена, так как дублировала кнопку "Задать вопрос".
+        // keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
 
         await ctx.reply(
             `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
@@ -83,9 +84,6 @@ exports.handleStart = async (ctx) => {
                 }
             }
         );
-
-        // Сброс флага при начале нового взаимодействия, чтобы избежать конфликтов
-        ctx.session.awaitingPaymentProof = false;
 
     } catch (error) {
         console.error('Ошибка в handleStart:', error);
@@ -163,8 +161,6 @@ exports.extendSubscription = async (ctx) => {
  */
 exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
-    // ⚠️ ИСПРАВЛЕНО: Сбрасываем флаг ожидания скриншота
-    ctx.session.awaitingPaymentProof = false;
     await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
 };
 
