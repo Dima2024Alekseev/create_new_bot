@@ -6,15 +6,15 @@ const connectDB = require('./config/db');
 const User = require('./models/User');
 
 const {
-  handleStart,
-  checkSubscriptionStatus,
-  extendSubscription,
-  promptForQuestion,
-  handleVpnConfigured,
-  promptVpnFailure,
-  promptCancelSubscription,
-  cancelSubscriptionFinal,
-  cancelSubscriptionAbort
+    handleStart,
+    checkSubscriptionStatus,
+    extendSubscription,
+    promptForQuestion,
+    handleVpnConfigured,
+    promptVpnFailure,
+    promptCancelSubscription,
+    cancelSubscriptionFinal,
+    cancelSubscriptionAbort
 } = require('./controllers/userController');
 
 const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
@@ -24,125 +24,125 @@ const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
-  telegram: {
-    agent: null,
-    handshakeTimeout: 30000
-  }
+    telegram: {
+        agent: null,
+        handshakeTimeout: 30000
+    }
 });
 
 bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
 connectDB().catch(err => {
-  console.error('❌ MongoDB connection failed:', err);
-  process.exit(1);
+    console.error('❌ MongoDB connection failed:', err);
+    process.exit(1);
 });
 
 // --- Глобальные обработчики ошибок ---
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
-  console.error('Stack trace:', reason.stack);
+    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error('Stack trace:', reason.stack);
 });
 
 process.on('uncaughtException', async (err) => {
-  console.error('⚠️ Uncaught Exception:', err);
-  console.error('Stack trace:', err.stack);
-  try {
-    await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
-  } catch (e) {
-    console.error("Failed to send uncaught exception to admin:", e);
-  }
-  await bot.stop().catch(e => console.error("Error stopping bot on uncaught exception:", e));
-  process.exit(1);
+    console.error('⚠️ Uncaught Exception:', err);
+    console.error('Stack trace:', err.stack);
+    try {
+        await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
+    } catch (e) {
+        console.error("Failed to send uncaught exception to admin:", e);
+    }
+    await bot.stop().catch(e => console.error("Error stopping bot on uncaught exception:", e));
+    process.exit(1);
 });
 
 // --- Middleware для ответов АДМИНА и обработки проблем ---
 bot.use(async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
-    if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
-      await handleAnswer(ctx);
-      return;
-    }
-
-    if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
-      const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
-      const adminAnswer = ctx.message.text;
-
-      try {
-        await ctx.telegram.sendMessage(
-          targetUserId,
-          `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
-          `"${adminAnswer}"`,
-          { parse_mode: 'Markdown' }
-        );
-        await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
-      } catch (error) {
-        console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
-        await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
-      } finally {
-        ctx.session.awaitingAnswerVpnIssueFor = null;
-      }
-      return;
-    }
-  }
-
-  if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
-    const userId = ctx.from.id;
-    const problemDescription = ctx.message.text;
-    const user = await User.findOne({ userId });
-
-    let userName = user?.firstName || user?.username || 'Без имени';
-    if (user?.username) {
-      userName = `${userName} (@${user.username})`;
-    }
-
-    await ctx.telegram.sendMessage(
-      process.env.ADMIN_ID,
-      `🚨 *Проблема с настройкой VPN от пользователя ${userName} (ID: ${userId}):*\n\n` +
-      `"${problemDescription}"`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '➡️ Ответить пользователю', callback_data: `answer_vpn_issue_${userId}` }]
-          ]
+    if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+        if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
+            await handleAnswer(ctx);
+            return;
         }
-      }
-    );
 
-    await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
-    ctx.session.awaitingVpnTroubleshoot = null;
-    return;
-  }
+        if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
+            const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
+            const adminAnswer = ctx.message.text;
 
-  return next();
+            try {
+                await ctx.telegram.sendMessage(
+                    targetUserId,
+                    `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
+                    `"${adminAnswer}"`,
+                    { parse_mode: 'Markdown' }
+                );
+                await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
+            } catch (error) {
+                console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
+                await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
+            } finally {
+                ctx.session.awaitingAnswerVpnIssueFor = null;
+            }
+            return;
+        }
+    }
+
+    if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
+        const userId = ctx.from.id;
+        const problemDescription = ctx.message.text;
+        const user = await User.findOne({ userId });
+
+        let userName = user?.firstName || user?.username || 'Без имени';
+        if (user?.username) {
+            userName = `${userName} (@${user.username})`;
+        }
+
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `🚨 *Проблема с настройкой VPN от пользователя ${userName} (ID: ${userId}):*\n\n` +
+            `"${problemDescription}"`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '➡️ Ответить пользователю', callback_data: `answer_vpn_issue_${userId}` }]
+                    ]
+                }
+            }
+        );
+
+        await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
+        ctx.session.awaitingVpnTroubleshoot = null;
+        return;
+    }
+
+    return next();
 });
 
 
 // --- Обработчики команд ---
 bot.start(async (ctx) => {
-  if (checkAdmin(ctx)) {
-    await checkAdminMenu(ctx);
-  } else {
-    await handleStart(ctx);
-  }
+    if (checkAdmin(ctx)) {
+        await checkAdminMenu(ctx);
+    } else {
+        await handleStart(ctx);
+    }
 });
 
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor)) {
-    return next();
-  }
+    if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor)) {
+        return next();
+    }
+    
+    // Если пользователь ожидает скриншот, то обычный текст игнорируем
+    if (ctx.session?.awaitingPaymentProof) {
+        return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
+    }
 
-  // Если пользователь ожидает скриншот, то обычный текст игнорируем
-  if (ctx.session?.awaitingPaymentProof) {
-    return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
-  }
-
-  // Если сообщение не является командой, обрабатываем его как вопрос
-  if (!ctx.message.text.startsWith('/')) {
-    await handleQuestion(ctx);
-  } else {
-    return next();
-  }
+    // Если сообщение не является командой, обрабатываем его как вопрос
+    if (!ctx.message.text.startsWith('/')) {
+        await handleQuestion(ctx);
+    } else {
+        return next();
+    }
 });
 
 
@@ -167,23 +167,23 @@ bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
 
-bot.action(/answer_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  ctx.session.awaitingAnswerFor = ctx.match[1];
-  await ctx.reply('✍️ Введите ответ для пользователя:');
-  await ctx.answerCbQuery();
+bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => { // <-- ИСПРАВЛЕНО
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    ctx.session.awaitingAnswerFor = ctx.match[1];
+    await ctx.reply('✍️ Введите ответ для пользователя:');
+    await ctx.answerCbQuery();
 });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  const targetUserId = parseInt(ctx.match[1]);
-  ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
-  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
-  await ctx.answerCbQuery();
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    const targetUserId = parseInt(ctx.match[1]);
+    ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
+    await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+    await ctx.answerCbQuery();
 });
 
 
@@ -206,23 +206,23 @@ setupReminders(bot);
 
 // --- Запуск ---
 bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
-  .catch(err => {
-    console.error('🚨 Ошибка запуска:', err);
-    process.exit(1);
-  });
+    .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+    .catch(err => {
+        console.error('🚨 Ошибка запуска:', err);
+        process.exit(1);
+    });
 
 // Graceful shutdown
 ['SIGINT', 'SIGTERM'].forEach(signal => {
-  process.once(signal, async () => {
-    console.log(`🛑 Получен ${signal}, останавливаю бота...`);
-    try {
-      await bot.stop();
-      console.log('✅ Бот остановлен');
-      process.exit(0);
-    } catch (err) {
-      console.error('Ошибка завершения:', err);
-      process.exit(1);
-    }
-  });
+    process.once(signal, async () => {
+        console.log(`🛑 Получен ${signal}, останавливаю бота...`);
+        try {
+            await bot.stop();
+            console.log('✅ Бот остановлен');
+            process.exit(0);
+        } catch (err) {
+            console.error('Ошибка завершения:', err);
+            process.exit(1);
+        }
+    });
 });
