@@ -84,6 +84,9 @@ exports.handleStart = async (ctx) => {
             }
         );
 
+        // Сброс флага при начале нового взаимодействия, чтобы избежать конфликтов
+        ctx.session.awaitingPaymentProof = false;
+
     } catch (error) {
         console.error('Ошибка в handleStart:', error);
         await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
@@ -147,7 +150,6 @@ exports.extendSubscription = async (ctx) => {
                 disable_web_page_preview: true
             }
         );
-        // ⚠️ НОВОЕ: Установка флага, чтобы бот ожидал скриншот оплаты
         ctx.session.awaitingPaymentProof = true;
     } catch (error) {
         console.error('Ошибка в extendSubscription:', error);
@@ -161,6 +163,8 @@ exports.extendSubscription = async (ctx) => {
  */
 exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
+    // ⚠️ ИСПРАВЛЕНО: Сбрасываем флаг ожидания скриншота
+    ctx.session.awaitingPaymentProof = false;
     await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
 };
 
