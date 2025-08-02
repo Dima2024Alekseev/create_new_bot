@@ -1,3 +1,4 @@
+// bot.js
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
@@ -22,6 +23,7 @@ const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminCon
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
+const { setConfig, getConfig } = require('./services/configService'); // Добавляем импорт
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
@@ -55,14 +57,16 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для ответов АДМИНА и обработки проблем ---
+// --- Middleware для обработки админских ответов и новой цены ---
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
+    // Обработка ответа на вопрос пользователя
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       await handleAnswer(ctx);
       return;
     }
-
+    
+    // Обработка ответа на проблему с VPN
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
@@ -83,8 +87,23 @@ bot.use(async (ctx, next) => {
       }
       return;
     }
+    
+    // Обработка новой цены
+    if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
+        const newPrice = parseInt(ctx.message.text);
+        if (isNaN(newPrice) || newPrice <= 0) {
+            return ctx.reply('⚠️ Пожалуйста, введите корректное число.');
+        }
+        
+        await setConfig('vpn_price', newPrice);
+        ctx.session.awaitingNewPrice = null;
+        await ctx.reply(`✅ Глобальная цена подписки обновлена на *${newPrice}* руб.`, { parse_mode: 'Markdown' });
+        await checkAdminMenu(ctx);
+        return;
+    }
   }
 
+  // Обработка проблемы с VPN от пользователя
   if (ctx.session?.awaitingVpnTroubleshoot && ctx.from?.id === ctx.session.awaitingVpnTroubleshoot && ctx.message?.text) {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
@@ -127,31 +146,23 @@ bot.start(async (ctx) => {
   }
 });
 
-// ⚠️ ИСПРАВЛЕНО: Объединенный обработчик текстовых сообщений
+// Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  // 1. Проверяем, является ли сообщение ответом администратора на вопрос.
-  // Этот middleware выше уже обрабатывает это.
-  // Здесь мы просто пропускаем, если это так.
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice)) {
     return next();
   }
 
-  // 2. Проверяем, ожидает ли пользователь скриншот.
   if (ctx.session?.awaitingPaymentProof) {
     return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
   }
 
-  // 3. Проверяем, является ли сообщение командой.
   if (ctx.message.text.startsWith('/')) {
-    return next(); // Передаем управление следующему обработчику команд.
+    return next();
   }
 
-  // 4. Проверяем, является ли отправитель администратором.
   if (checkAdmin(ctx)) {
-    // Если это админ, отвечаем ему соответствующим сообщением и завершаем обработку.
     return ctx.reply("О нет, только не это... Ты дошёл до стадии 'напишу боту, вдруг ответит'? 😭 Бро, срочно жми в нейросеть — она хотя бы делает вид, что слушает, а не тупо шлёт стикеры. 🚨🤖");
   } else {
-    // Если это обычный пользователь, обрабатываем как вопрос.
     await handleQuestion(ctx);
   }
 });
@@ -177,24 +188,32 @@ bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
+bot.action('set_price_admin', async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
 
-bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  ctx.session.awaitingAnswerFor = ctx.match[1];
-  await ctx.reply('✍️ Введите ответ для пользователя:');
-  await ctx.answerCbQuery();
+    ctx.session.awaitingNewPrice = true;
+    const currentPrice = await getConfig('vpn_price', 132);
+    await ctx.reply(`✍️ Текущая цена: ${currentPrice} руб. Введите новую цену:`);
+    await ctx.answerCbQuery();
 });
-
+bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    ctx.session.awaitingAnswerFor = ctx.match[1];
+    await ctx.reply('✍️ Введите ответ для пользователя:');
+    await ctx.answerCbQuery();
+});
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  const targetUserId = parseInt(ctx.match[1]);
-  ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
-  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
-  await ctx.answerCbQuery();
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    const targetUserId = parseInt(ctx.match[1]);
+    ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
+    await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+    await ctx.answerCbQuery();
 });
 
 

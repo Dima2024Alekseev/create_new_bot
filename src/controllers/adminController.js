@@ -4,6 +4,7 @@ const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 // ИЗМЕНЕНО: Импорт checkAdmin из нового модуля utils/auth
 const { checkAdmin } = require('../utils/auth');
+const { getConfig, setConfig } = require('../services/configService');
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей.
@@ -138,17 +139,17 @@ exports.stats = async (ctx) => {
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.reply('🚫 У вас нет доступа к админ-панели.');
+        return;
     }
 
-    try {
-        await ctx.reply('Панель администратора:', Markup.inlineKeyboard([
-            [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
-            [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
-            [Markup.button.callback('❓ Все вопросы', 'list_questions')]
-        ]));
-    } catch (error) {
-        console.error('Ошибка при отображении админ-панели:', error);
-        await ctx.reply('⚠️ Произошла ошибка при загрузке админ-панели.');
-    }
+    const currentPrice = await getConfig('vpn_price', 132);
+
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
+        [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
+        [Markup.button.callback('❓ Все вопросы', 'list_questions')],
+        [Markup.button.callback(`Изменить цену (сейчас: ${currentPrice} руб.)`, 'set_price_admin')]
+    ]);
+
+    await ctx.reply('Панель администратора:', keyboard);
 };
