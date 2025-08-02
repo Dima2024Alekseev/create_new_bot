@@ -2,14 +2,14 @@
 const mongoose = require('mongoose');
 
 const configSchema = new mongoose.Schema({
-    name: { 
-        type: String, 
-        required: true, 
-        unique: true 
+    name: {
+        type: String,
+        required: true,
+        unique: true
     },
-    value: { 
-        type: Number, 
-        required: true 
+    value: {
+        type: Number,
+        required: true
     }
 });
 
