@@ -91,7 +91,7 @@ exports.listQuestions = async (ctx) => {
                 `_${question.questionText.slice(0, 50)}..._\n\n`;
 
             keyboardButtons.push(
-                Markup.button.callback(`➡️ Ответить на вопрос от ${name}`, `answer_${questionId}`) // <-- ИСПРАВЛЕНО ЗДЕСЬ
+                Markup.button.callback(`➡️ Ответить на вопрос от ${name}`, `answer_${questionId}`)
             );
         }
         
@@ -120,10 +120,12 @@ exports.handleAnswer = async (ctx) => {
             return ctx.reply('❌ Вопрос не найден.');
         }
 
+        // ⚠️ ИЗМЕНЕНО: Добавлен оригинальный вопрос в ответ администратора
         await ctx.telegram.sendMessage(
             question.userId,
             `✅ *Ответ администратора на ваш вопрос:*\n\n` +
-            `"${answerText}"`,
+            `"${answerText}"\n\n` +
+            `_Ваш вопрос: "${question.questionText}"_`,
             { parse_mode: 'Markdown' }
         );
 
