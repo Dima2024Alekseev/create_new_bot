@@ -199,6 +199,11 @@ bot.action('cancel_subscription_confirm', promptCancelSubscription);
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 
+bot.on('text', async (ctx) => {
+  if (checkAdmin(ctx)) {
+      await ctx.reply('👋 О чувак, тебе настолько хреново, что ты пишешь боту, зайди в инет хотя бы с нейросетью пообщайся:)');
+  }
+});
 
 // --- Напоминания ---
 setupReminders(bot);
