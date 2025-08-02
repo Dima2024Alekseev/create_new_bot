@@ -42,7 +42,7 @@ exports.handleStart = async (ctx) => {
             } else {
                 const timeLeft = expireDate - now;
                 const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
-                const duration = formatDuration(timeLeft); // Используем новую функцию
+                const duration = formatDuration(timeLeft);
                 statusText = `✅ *Ваша подписка активна!* Осталось ещё *${duration}*.\n`;
 
                 if (daysLeft < 7) {
@@ -108,12 +108,11 @@ exports.checkSubscriptionStatus = async (ctx) => {
         const timeLeft = user.expireDate - now;
 
         if (timeLeft > 0) {
-            // ИЗМЕНЕНИЕ: Используем новую функцию для форматирования длительности
             const duration = formatDuration(timeLeft);
             await ctx.reply(
                 `✅ *Ваша подписка активна!*` +
                 `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
-                `\nОсталось: *${duration}*`, // Отображаем дни, часы и минуты
+                `\nОсталось: *${duration}*`,
                 { parse_mode: 'Markdown' }
             );
         } else {
@@ -129,7 +128,7 @@ exports.checkSubscriptionStatus = async (ctx) => {
 };
 
 /**
- * Запускает процесс продления подписки, отправляя реквизиты.
+ * Запускает процесс продления подписки с подтверждением
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.extendSubscription = async (ctx) => {
@@ -138,19 +137,65 @@ exports.extendSubscription = async (ctx) => {
     const name = first_name || username;
 
     try {
+        // Устанавливаем флаг ожидания скриншота
+        ctx.session.expectingPaymentPhoto = true;
+        
         await ctx.answerCbQuery();
-        await ctx.reply(
+        
+        const message = await ctx.reply(
             `*Чтобы продлить или оплатить подписку, переведите ${process.env.VPN_PRICE} руб. по реквизитам ниже:*\n\n` +
             paymentDetails(userId, name) +
-            `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
+            `\n\nПосле оплаты *нажмите кнопку подтверждения* и отправьте скриншот.`,
             {
                 parse_mode: 'Markdown',
-                disable_web_page_preview: true
+                disable_web_page_preview: true,
+                reply_markup: Markup.inlineKeyboard([
+                    [Markup.button.callback('✅ Я оплатил, отправить скриншот', 'confirm_payment')],
+                    [Markup.button.callback('❌ Отменить оплату', 'cancel_payment')]
+                ])
             }
         );
+
+        // Сохраняем ID сообщения для возможного удаления
+        ctx.session.paymentMessageId = message.message_id;
+
     } catch (error) {
         console.error('Ошибка в extendSubscription:', error);
         await ctx.reply('⚠️ Произошла ошибка при отправке реквизитов.');
+    }
+};
+
+/**
+ * Подтверждение оплаты перед отправкой скриншота
+ */
+exports.confirmPayment = async (ctx) => {
+    try {
+        await ctx.answerCbQuery();
+        await ctx.reply('Теперь отправьте скриншот чека об оплате в этот чат.');
+        ctx.session.expectingPaymentPhoto = true;
+        
+        // Удаляем предыдущее сообщение с кнопками
+        if (ctx.session.paymentMessageId) {
+            await ctx.deleteMessage(ctx.session.paymentMessageId);
+            delete ctx.session.paymentMessageId;
+        }
+    } catch (error) {
+        console.error('Ошибка в confirmPayment:', error);
+        await ctx.reply('⚠️ Произошла ошибка. Попробуйте ещё раз.');
+    }
+};
+
+/**
+ * Отмена процесса оплаты
+ */
+exports.cancelPayment = async (ctx) => {
+    try {
+        delete ctx.session.expectingPaymentPhoto;
+        await ctx.answerCbQuery();
+        await ctx.editMessageText('Оплата отменена. Вы можете начать процесс заново в любое время.');
+    } catch (error) {
+        console.error('Ошибка в cancelPayment:', error);
+        await ctx.answerCbQuery('⚠️ Ошибка при отмене!');
     }
 };
 
@@ -162,7 +207,6 @@ exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
 };
-
 
 /**
  * Обрабатывает запрос пользователя на отмену подписки.
@@ -204,8 +248,6 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             { parse_mode: 'Markdown' }
         );
 
-        // TODO: Добавить логику для отзыва доступа на VPN-сервере, если это возможно через API
-        // Например: await vpnService.revokeAccess(userId);
     } catch (error) {
         console.error(`Ошибка при финальной отмене подписки для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Произошла ошибка при отмене подписки.');
