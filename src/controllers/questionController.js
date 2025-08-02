@@ -91,7 +91,7 @@ exports.listQuestions = async (ctx) => {
                 `_${question.questionText.slice(0, 50)}..._\n\n`;
 
             keyboardButtons.push(
-                Markup.button.callback(`➡️ Ответить на вопрос от ${name} (${questionId.slice(-4)})`, `answer_${questionId}`)
+                Markup.button.callback(`➡️ Ответить на вопрос от ${name}`, `answer_${questionId}`) // <-- ИСПРАВЛЕНО ЗДЕСЬ
             );
         }
         
