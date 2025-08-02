@@ -2,18 +2,13 @@ const User = require('../models/User');
 const Question = require('../models/Question');
 const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
-// ИЗМЕНЕНО: Импорт checkAdmin из нового модуля utils/auth
 const { checkAdmin } = require('../utils/auth');
 const { getConfig, setConfig } = require('../services/configService');
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей.
- * Администратор получает информацию о заявках с скриншотами.
- * Если скриншота нет, админ получает текстовое уведомление.
- * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.checkPayments = async (ctx) => {
-    // ИЗМЕНЕНО: Использование checkAdmin из импорта
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
@@ -71,11 +66,8 @@ exports.checkPayments = async (ctx) => {
 
 /**
  * Генерирует и отправляет статистику бота администратору.
- * Включает кнопку "Обновить" для актуализации данных.
- * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.stats = async (ctx) => {
-    // ИЗМЕНЕНО: Использование checkAdmin из импорта
     if (!checkAdmin(ctx)) {
         if (ctx.callbackQuery) {
             return ctx.answerCbQuery('🚫 Только для админа');
@@ -134,8 +126,7 @@ exports.stats = async (ctx) => {
 };
 
 /**
- * Отображает главное меню администратора.
- * @param {object} ctx - Объект контекста Telegraf.
+ * Отображает главное меню администратора с улучшенной кнопкой изменения цены.
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
@@ -148,8 +139,17 @@ exports.checkAdminMenu = async (ctx) => {
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
         [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
         [Markup.button.callback('❓ Все вопросы', 'list_questions')],
-        [Markup.button.callback(`Изменить цену (сейчас: ${currentPrice} руб.)`, 'set_price_admin')]
+        [
+            Markup.button.callback(
+                `💰 Изменить цену (Текущая: ${currentPrice} ₽)`, 
+                'set_price_admin'
+            )
+        ],
+        [
+            Markup.button.callback('📝 Рассылка', 'start_broadcast'),
+            Markup.button.callback('⚙️ Настройки', 'admin_settings')
+        ]
     ]);
 
-    await ctx.reply('Панель администратора:', keyboard);
+    await ctx.reply('⚙️ Панель администратора:', keyboard);
 };
