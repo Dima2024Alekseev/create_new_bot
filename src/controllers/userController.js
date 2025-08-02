@@ -1,9 +1,12 @@
+// src/controllers/userController.js
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { Markup } = require('telegraf');
 const { formatDate, formatDuration, paymentDetails } = require('../utils/helpers');
 const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
+
+// ... (остальные функции)
 
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
@@ -124,12 +127,12 @@ exports.extendSubscription = async (ctx) => {
 
     try {
         await ctx.answerCbQuery();
-        await ctx.reply(
-            `*Чтобы продлить или оплатить подписку, переведите ${process.env.VPN_PRICE} руб. по реквизитам ниже:*\n\n` +
-            paymentDetails(userId, name) +
+        // Исправлено: Дожидаемся выполнения paymentDetails
+        const paymentMessage = await paymentDetails(userId, name);
+        await ctx.replyWithMarkdown(
+            paymentMessage +
             `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
             {
-                parse_mode: 'Markdown',
                 disable_web_page_preview: true
             }
         );
@@ -173,13 +176,11 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             return ctx.editMessageText('Ошибка: пользователь не найден.');
         }
 
-        // Отключаем VPN-клиента, если он есть
         if (user.vpnClientName) {
             await revokeVpnClient(user.vpnClientName);
             console.log(`🔒 VPN отключён для ${user.vpnClientName} (ID: ${userId})`);
         }
 
-        // Обновляем статус пользователя
         await User.updateOne(
             { userId },
             {
@@ -192,7 +193,6 @@ exports.cancelSubscriptionFinal = async (ctx) => {
         await ctx.answerCbQuery('✅ Подписка отменена.');
         await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN прекращён.');
 
-        // Уведомляем админа
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
             `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.\n` +
