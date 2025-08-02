@@ -13,7 +13,14 @@ const path = require('path');
 exports.handlePhoto = async (ctx) => {
     // ⚠️ НОВОЕ: Проверка, находится ли пользователь в состоянии ожидания скриншота
     if (!ctx.session.awaitingPaymentProof) {
-        return ctx.reply('⚠️ Чтобы отправить скриншот, пожалуйста, сначала нажмите кнопку "Оплатить подписку" в главном меню.');
+        const userId = ctx.from.id;
+        const user = await User.findOne({ userId });
+
+        if (user && user.status === 'active') {
+            return ctx.reply('⚠️ Ваша подписка ещё активна. Если вы хотите её продлить, нажмите кнопку "Продлить подписку" в главном меню (/start).');
+        } else {
+            return ctx.reply('⚠️ Чтобы отправить скриншот, пожалуйста, сначала нажмите кнопку "Оплатить подписку" в главном меню.');
+        }
     }
 
     const { id, first_name, username } = ctx.from;
