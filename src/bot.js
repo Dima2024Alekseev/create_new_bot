@@ -1,6 +1,6 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
-const { Telegraf, session, Markup } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const connectDB = require('./config/db');
 const User = require('./models/User');
@@ -14,10 +14,18 @@ const {
   promptVpnFailure,
   promptCancelSubscription,
   cancelSubscriptionFinal,
-  cancelSubscriptionAbort
+  cancelSubscriptionAbort,
+  askRejectionReason
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
+const {
+  handlePhoto,
+  handleApprove,
+  handleReject,
+  handleRejectionComment,
+  cancelRejection
+} = require('./controllers/paymentController');
+
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
@@ -31,9 +39,19 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
   }
 });
 
-bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
+// Улучшенная конфигурация сессии
+bot.use((new LocalSession({
+  database: 'session_db.json',
+  property: 'session',
+  getSessionKey: (ctx) => ctx.from?.id.toString(),
+  storage: LocalSession.storageFileAsync,
+  format: {
+    serialize: (obj) => JSON.stringify(obj, null, 2),
+    deserialize: (str) => JSON.parse(str)
+  }
+})).middleware());
 
-// Вспомогательная функция для изменения цены
+// Функция изменения цены
 async function finalizePriceChange(ctx, newPrice) {
   const oldPrice = await getConfig('vpn_price', 132);
   await setConfig('vpn_price', newPrice);
@@ -44,16 +62,16 @@ async function finalizePriceChange(ctx, newPrice) {
   await ctx.reply(`✅ Цена успешно изменена с ${oldPrice} ₽ на ${newPrice} ₽`);
   await checkAdminMenu(ctx);
 
-  // Логирование
   console.log(`[PRICE CHANGE] Admin ${ctx.from.id} changed price from ${oldPrice} to ${newPrice} RUB`);
 }
 
+// Подключение к БД
 connectDB().catch(err => {
   console.error('❌ MongoDB connection failed:', err);
   process.exit(1);
 });
 
-// --- Глобальные обработчики ошибок ---
+// Глобальные обработчики ошибок
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
   console.error('Stack trace:', reason.stack);
@@ -63,7 +81,11 @@ process.on('uncaughtException', async (err) => {
   console.error('⚠️ Uncaught Exception:', err);
   console.error('Stack trace:', err.stack);
   try {
-    await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``, { parse_mode: 'Markdown' }).catch(e => console.error("Error sending exception to admin:", e));
+    await bot.telegram.sendMessage(
+      process.env.ADMIN_ID,
+      `🚨 Критическая ошибка бота: ${err.message}\n\`\`\`\n${err.stack}\n\`\`\``,
+      { parse_mode: 'Markdown' }
+    ).catch(e => console.error("Error sending exception to admin:", e));
   } catch (e) {
     console.error("Failed to send uncaught exception to admin:", e);
   }
@@ -71,10 +93,10 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для обработки админских ответов и новой цены ---
+// Middleware для обработки администраторских действий
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
-    // Обработка ответа на вопрос пользователя
+    // Обработка ответа на вопрос
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
       await handleAnswer(ctx);
       return;
@@ -88,14 +110,13 @@ bot.use(async (ctx, next) => {
       try {
         await ctx.telegram.sendMessage(
           targetUserId,
-          `🛠️ *Ответ администратора по вашей проблеме с настройкой VPN:*\n\n` +
-          `"${adminAnswer}"`,
+          `🛠️ *Ответ администратора по вашей проблеме с VPN:*\n\n"${adminAnswer}"`,
           { parse_mode: 'Markdown' }
         );
-        await ctx.reply(`✅ Ваш ответ успешно отправлен пользователю ${targetUserId}.`);
+        await ctx.reply(`✅ Ответ отправлен пользователю ${targetUserId}.`);
       } catch (error) {
-        console.error(`Ошибка при отправке ответа на проблему VPN пользователю ${targetUserId}:`, error);
-        await ctx.reply(`⚠️ Произошла ошибка при отправке ответа.`);
+        console.error(`Ошибка отправки ответа пользователю ${targetUserId}:`, error);
+        await ctx.reply(`⚠️ Ошибка отправки ответа.`);
       } finally {
         ctx.session.awaitingAnswerVpnIssueFor = null;
       }
@@ -106,33 +127,20 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
       const newPrice = parseInt(ctx.message.text);
 
-      // Валидация
       if (isNaN(newPrice)) {
         return ctx.reply('❌ Цена должна быть числом. Попробуйте еще раз:');
       }
 
-      if (newPrice < 50) {
-        return ctx.reply('❌ Цена не может быть меньше 50 ₽. Введите корректную сумму:');
-      }
-
-      if (newPrice > 5000) {
-        return ctx.reply('❌ Цена не может превышать 5000 ₽. Введите корректную сумму:');
+      if (newPrice < 50 || newPrice > 5000) {
+        return ctx.reply('❌ Цена должна быть от 50 до 5000 ₽. Введите корректную сумму:');
       }
 
       const oldPrice = await getConfig('vpn_price', 132);
 
-      // Если изменение больше чем на 500 руб - запрашиваем подтверждение
       if (Math.abs(newPrice - oldPrice) > 500) {
-        ctx.session.pendingPriceChange = {
-          newPrice,
-          oldPrice
-        };
-
+        ctx.session.pendingPriceChange = { newPrice, oldPrice };
         return ctx.reply(
-          `⚠️ Вы изменяете цену более чем на 500 ₽\n` +
-          `Текущая цена: ${oldPrice} ₽\n` +
-          `Новая цена: ${newPrice} ₽\n\n` +
-          `Подтвердите изменение:`,
+          `⚠️ Вы изменяете цену более чем на 500 ₽\nТекущая: ${oldPrice} ₽\nНовая: ${newPrice} ₽\n\nПодтвердите:`,
           Markup.inlineKeyboard([
             [Markup.button.callback('✅ Подтвердить', 'confirm_price_change')],
             [Markup.button.callback('❌ Отменить', 'cancel_price_change')]
@@ -141,6 +149,12 @@ bot.use(async (ctx, next) => {
       }
 
       await finalizePriceChange(ctx, newPrice);
+      return;
+    }
+
+    // Обработка комментария отклонения
+    if (ctx.session?.rejectingPaymentFor && ctx.message?.text) {
+      await handleRejectionComment(ctx);
       return;
     }
   }
@@ -152,25 +166,22 @@ bot.use(async (ctx, next) => {
     const user = await User.findOne({ userId });
 
     let userName = user?.firstName || user?.username || 'Без имени';
-    if (user?.username) {
-      userName = `${userName} (@${user.username})`;
-    }
+    if (user?.username) userName = `${userName} (@${user.username})`;
 
     await ctx.telegram.sendMessage(
       process.env.ADMIN_ID,
-      `🚨 *Проблема с настройкой VPN от пользователя ${userName} (ID: ${userId}):*\n\n` +
-      `"${problemDescription}"`,
+      `🚨 *Проблема с VPN от ${userName} (ID: ${userId}):*\n\n"${problemDescription}"`,
       {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '➡️ Ответить пользователю', callback_data: `answer_vpn_issue_${userId}` }]
+            [{ text: '➡️ Ответить', callback_data: `answer_vpn_issue_${userId}` }]
           ]
         }
       }
     );
 
-    await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
+    await ctx.reply('✅ Ваша проблема отправлена администратору. Он свяжется с вами.');
     ctx.session.awaitingVpnTroubleshoot = null;
     return;
   }
@@ -178,7 +189,7 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// --- Обработчики команд ---
+// Обработчики команд
 bot.start(async (ctx) => {
   if (checkAdmin(ctx)) {
     await checkAdminMenu(ctx);
@@ -187,14 +198,17 @@ bot.start(async (ctx) => {
   }
 });
 
-// Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) &&
+    (ctx.session?.awaitingAnswerFor ||
+      ctx.session?.awaitingAnswerVpnIssueFor ||
+      ctx.session?.awaitingNewPrice ||
+      ctx.session?.rejectingPaymentFor)) {
     return next();
   }
 
   if (ctx.session?.awaitingPaymentProof) {
-    return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
+    return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты. Для отмены нажмите /start');
   }
 
   if (ctx.message.text.startsWith('/')) {
@@ -202,7 +216,7 @@ bot.on('text', async (ctx, next) => {
   }
 
   if (checkAdmin(ctx)) {
-    return ctx.reply("О нет, только не это... Ты дошёл до стадии 'напишу боту, вдруг ответит'? 😭 Бро, срочно жми в нейросеть — она хотя бы делает вид, что слушает, а не тупо шлёт стикеры. 🚨🤖");
+    return ctx.reply("Команда не распознана. Используйте панель администратора /admin");
   } else {
     await handleQuestion(ctx);
   }
@@ -214,30 +228,27 @@ bot.command('check', checkPayments);
 bot.command('stats', stats);
 bot.command('questions', listQuestions);
 
-// Обработка платежей (фото)
+// Обработка фото платежей
 bot.on('photo', handlePhoto);
 
-// --- Обработчики кнопок (callback_data) ---
-
-// Кнопки админа
+// Обработчики callback-кнопок
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
+bot.action('cancel_rejection', cancelRejection);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
+bot.action('ask_rejection_reason', askRejectionReason);
+
 bot.action('set_price_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   const currentPrice = await getConfig('vpn_price', 132);
   ctx.session.awaitingNewPrice = true;
 
   await ctx.reply(
-    `✏️ <b>Изменение цены подписки</b>\n\n` +
-    `Текущая цена: <b>${currentPrice} ₽</b>\n\n` +
-    `Введите новую цену (от 50 до 5000 ₽):`,
+    `✏️ <b>Изменение цены подписки</b>\n\nТекущая цена: <b>${currentPrice} ₽</b>\n\nВведите новую цену (50-5000 ₽):`,
     {
       parse_mode: 'HTML',
       reply_markup: Markup.inlineKeyboard([
@@ -245,69 +256,55 @@ bot.action('set_price_admin', async (ctx) => {
       ])
     }
   );
-
   await ctx.answerCbQuery();
 });
 
 bot.action('confirm_price_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-
-  const { newPrice, oldPrice } = ctx.session.pendingPriceChange;
+  const { newPrice } = ctx.session.pendingPriceChange;
   await finalizePriceChange(ctx, newPrice);
-
-  // Логирование
-  console.log(`Админ ${ctx.from.id} изменил цену с ${oldPrice} на ${newPrice} руб`);
   await ctx.answerCbQuery();
 });
 
 bot.action('cancel_price_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-
   delete ctx.session.pendingPriceChange;
   delete ctx.session.awaitingNewPrice;
-
   await ctx.reply('❌ Изменение цены отменено');
   await ctx.answerCbQuery();
   await checkAdminMenu(ctx);
 });
 
 bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
   await ctx.answerCbQuery();
 });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-  const targetUserId = parseInt(ctx.match[1]);
-  ctx.session.awaitingAnswerVpnIssueFor = targetUserId;
-  await ctx.reply(`✍️ Введите ответ для пользователя ${targetUserId} по его проблеме с VPN:`);
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  ctx.session.awaitingAnswerVpnIssueFor = parseInt(ctx.match[1]);
+  await ctx.reply(`✍️ Введите ответ для пользователя ${ctx.match[1]}:`);
   await ctx.answerCbQuery();
 });
 
-// Кнопки пользователя
+// Пользовательские кнопки
 bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
-
-// Обработчики для отмены подписки
 bot.action('cancel_subscription_confirm', promptCancelSubscription);
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 
-// --- Напоминания ---
+// Настройка напоминаний
 setupReminders(bot);
 
-// --- Запуск ---
+// Запуск бота
 bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+  .then(() => console.log('🤖 Бот успешно запущен'))
   .catch(err => {
     console.error('🚨 Ошибка запуска:', err);
     process.exit(1);
