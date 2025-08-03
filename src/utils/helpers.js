@@ -1,5 +1,5 @@
+// src/utils/helpers.js
 const { getConfig } = require('../services/configService');
-
 /**
  * Генерирует реквизиты для оплаты VPN с динамическим комментарием.
  * @param {number} userId - ID пользователя.
@@ -84,25 +84,4 @@ exports.transliterate = (str) => {
   return str.split('').map(function (char) {
     return rus[char] || char;
   }).join('');
-};
-
-/**
- * Генерирует стандартное сообщение об отклонении платежа
- * @param {string|null} customReason - Кастомная причина отклонения
- * @returns {string} Отформатированное сообщение
- */
-exports.generateRejectionMessage = (customReason = null) => {
-    let message = '❌ *Платёж отклонён*';
-    
-    if (customReason) {
-        message += `\n\nПричина: ${customReason}`;
-    } else {
-        message += '\n\nВозможные причины:\n' +
-                   '- Неверная сумма\n' +
-                   '- Нет комментария к платежу\n' +
-                   '- Нечитаемый скриншот\n\n' +
-                   '*Попробуйте отправить чек ещё раз.*';
-    }
-    
-    return message;
 };
