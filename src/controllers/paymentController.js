@@ -136,7 +136,8 @@ exports.handleApprove = async (ctx) => {
             status: 'active',
             expireDate: newExpireDate,
             paymentPhotoId: null,
-            paymentPhotoDate: null,
+            // Сохраняем дату подачи платежа для истории
+            // paymentPhotoDate: null, - убираем эту строку
             $inc: { subscriptionCount: 1 }
         };
 
@@ -287,7 +288,8 @@ exports.handleRejectSimple = async (ctx) => {
             {
                 status: 'rejected',
                 paymentPhotoId: null,
-                paymentPhotoDate: null,
+                // Сохраняем дату подачи платежа для истории
+                // paymentPhotoDate: null, - убираем эту строку
                 rejectionReason: null // Очищаем предыдущую причину
             }
         );
@@ -504,7 +506,8 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
             {
                 status: 'rejected',
                 paymentPhotoId: null,
-                paymentPhotoDate: null,
+                // Сохраняем дату подачи платежа для истории
+                // paymentPhotoDate: null, - убираем эту строку
                 rejectionReason: rejectionComment
             }
         );

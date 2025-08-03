@@ -9,6 +9,10 @@ const userSchema = new mongoose.Schema({
   username: String,
   firstName: String,
   paymentPhotoId: String,
+  paymentPhotoDate: {
+    type: Date,
+    default: null,
+  },
   status: {
     type: String,
     enum: ['active', 'pending', 'rejected', 'inactive'],
