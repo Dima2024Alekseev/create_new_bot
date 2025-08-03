@@ -198,28 +198,41 @@ bot.start(async (ctx) => {
   }
 });
 
+// Обработка текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) &&
-    (ctx.session?.awaitingAnswerFor ||
-      ctx.session?.awaitingAnswerVpnIssueFor ||
-      ctx.session?.awaitingNewPrice ||
-      ctx.session?.rejectingPaymentFor)) {
+  // Приоритетная обработка уточнения причины отклонения
+  if (ctx.session?.awaitingRejectionDetails) {
+    ctx.session.awaitingRejectionDetails = false;
+    await handleQuestion(ctx);
+    return;
+  }
+
+  // Обработка администраторских состояний
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && 
+      (ctx.session?.awaitingAnswerFor || 
+       ctx.session?.awaitingAnswerVpnIssueFor || 
+       ctx.session?.awaitingNewPrice ||
+       ctx.session?.rejectingPaymentFor)) {
     return next();
   }
 
+  // Ожидание скриншота оплаты
   if (ctx.session?.awaitingPaymentProof) {
     return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты. Для отмены нажмите /start');
   }
 
+  // Обработка команд
   if (ctx.message.text.startsWith('/')) {
     return next();
   }
 
+  // Обработка для администраторов
   if (checkAdmin(ctx)) {
     return ctx.reply("Команда не распознана. Используйте панель администратора /admin");
-  } else {
-    await handleQuestion(ctx);
   }
+
+  // Стандартная обработка вопросов
+  await handleQuestion(ctx);
 });
 
 // Админские команды
@@ -229,7 +242,12 @@ bot.command('stats', stats);
 bot.command('questions', listQuestions);
 
 // Обработка фото платежей
-bot.on('photo', handlePhoto);
+bot.on('photo', async (ctx) => {
+  // Сбрасываем конфликтующие состояния
+  ctx.session.awaitingRejectionDetails = false;
+  ctx.session.awaitingPaymentProof = true;
+  await handlePhoto(ctx);
+});
 
 // Обработчики callback-кнопок
 bot.action(/approve_(\d+)/, handleApprove);
@@ -239,7 +257,11 @@ bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
-bot.action('ask_rejection_reason', askRejectionReason);
+
+// Обработка кнопки "Уточнить причину"
+bot.action('ask_rejection_reason', async (ctx) => {
+  await askRejectionReason(ctx);
+});
 
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');

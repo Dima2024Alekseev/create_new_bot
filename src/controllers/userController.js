@@ -111,6 +111,10 @@ exports.askRejectionReason = async (ctx) => {
             ])
         );
     }
+    
+    // Устанавливаем флаг для последующей обработки текстового сообщения
+    ctx.session.awaitingRejectionDetails = true;
+    ctx.session.awaitingPaymentProof = false;
 };
 
 exports.checkSubscriptionStatus = async (ctx) => {
