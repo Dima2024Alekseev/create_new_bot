@@ -1,3 +1,4 @@
+// src/bot.js
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
@@ -17,12 +18,12 @@ const {
   cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
+const { handlePhoto, handleApprove, handleReject, handleRejectWithoutComment, handleRejectWithCommentPrompt, handleCancelRejection } = require('./services/paymentService');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
-const { setConfig, getConfig } = require('./services/configService');
+const { setConfig, getConfig, escapeMarkdown } = require('./services/configService');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
@@ -143,6 +144,41 @@ bot.use(async (ctx, next) => {
       await finalizePriceChange(ctx, newPrice);
       return;
     }
+
+    // НОВАЯ ЛОГИКА: Обработка комментария к отклонению платежа
+    if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
+      const userId = ctx.session.awaitingRejectionCommentFor;
+      const rejectionComment = ctx.message.text;
+
+      try {
+        // Обновляем статус пользователя
+        await User.findOneAndUpdate(
+          { userId },
+          {
+            status: 'rejected',
+            paymentPhotoId: null,
+            paymentPhotoDate: null
+          }
+        );
+
+        // Отправляем пользователю сообщение с комментарием админа
+        await ctx.telegram.sendMessage(
+          userId,
+          '❌ *Платёж отклонён*\n\n' +
+          '*Причина:* ' + escapeMarkdown(rejectionComment),
+          { parse_mode: 'Markdown' }
+        );
+
+        // Сообщаем админу об успехе
+        await ctx.reply(`✅ Платёж для пользователя ${userId} успешно отклонён с указанным комментарием.`);
+      } catch (error) {
+        console.error(`Ошибка при отклонении платежа для пользователя ${userId}:`, error);
+        await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
+      } finally {
+        ctx.session.awaitingRejectionCommentFor = null;
+      }
+      return;
+    }
   }
 
   // Обработка проблемы с VPN от пользователя
@@ -189,7 +225,8 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice)) {
+  // Исключаем обработку, если админ в одном из режимов ожидания
+  if (checkAdmin(ctx) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor)) {
     return next();
   }
 
@@ -222,6 +259,9 @@ bot.on('photo', handlePhoto);
 // Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
+bot.action(/reject_without_comment_(\d+)/, handleRejectWithoutComment);
+bot.action(/reject_with_comment_(\d+)/, handleRejectWithCommentPrompt);
+bot.action(/cancel_rejection_(\d+)/, handleCancelRejection);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);

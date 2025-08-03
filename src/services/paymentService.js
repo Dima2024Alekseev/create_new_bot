@@ -1,3 +1,4 @@
+// src/services/paymentService.js
 const User = require('../models/User');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
@@ -216,6 +217,34 @@ exports.handleReject = async (ctx) => {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
   const userId = parseInt(ctx.match[1]);
+
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback('Отклонить без комментария', `reject_without_comment_${userId}`),
+    ],
+    [
+      Markup.button.callback('Отклонить с комментарием', `reject_with_comment_${userId}`),
+    ],
+    [
+      Markup.button.callback('❌ Отменить отмену платежа', `cancel_rejection_${userId}`),
+    ]
+  ]);
+
+  await ctx.deleteMessage();
+  await ctx.reply(
+    `Пользователь: ${userId}\n` +
+    `Выберите, как отклонить платеж:`,
+    { reply_markup: keyboard }
+  );
+
+  await ctx.answerCbQuery();
+};
+
+exports.handleRejectWithoutComment = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const userId = parseInt(ctx.match[1]);
   try {
     await User.findOneAndUpdate(
       { userId },
@@ -228,6 +257,7 @@ exports.handleReject = async (ctx) => {
     await ctx.telegram.sendMessage(
       userId,
       '❌ *Платёж отклонён*\n\n' +
+      'Причина: это не скриншот со Сбербанка\n\n' +
       'Возможные причины:\n' +
       '- Неверная сумма\n' +
       '- Нет комментария к платежу\n' +
@@ -235,11 +265,68 @@ exports.handleReject = async (ctx) => {
       '*Попробуйте отправить чек ещё раз.*',
       { parse_mode: 'Markdown' }
     );
-    await ctx.answerCbQuery('❌ Платёж отклонён');
+    await ctx.answerCbQuery('❌ Платёж отклонён без комментария');
     await ctx.deleteMessage();
   } catch (error) {
-    console.error(`Ошибка при отклонении платежа для пользователя ${userId}:`, error);
+    console.error(`Ошибка при отклонении платежа для пользователя ${userId} без комментария:`, error);
     await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
     await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
+  }
+};
+
+exports.handleRejectWithCommentPrompt = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const userId = parseInt(ctx.match[1]);
+
+  ctx.session.awaitingRejectionCommentFor = userId;
+
+  await ctx.deleteMessage();
+  await ctx.reply(`✍️ Введите причину отклонения платежа для пользователя ${userId}. Этот комментарий будет отправлен ему.`);
+  await ctx.answerCbQuery('✍️ Ожидаю комментарий для отклонения платежа');
+};
+
+exports.handleCancelRejection = async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+  const userId = parseInt(ctx.match[1]);
+
+  const user = await User.findOne({ userId });
+
+  if (user && user.paymentPhotoId) {
+    const keyboard = Markup.inlineKeyboard([
+      Markup.button.callback('✅ Принять', `approve_${userId}`),
+      Markup.button.callback('❌ Отклонить', `reject_${userId}`)
+    ]);
+
+    let userDisplay = '';
+    const safeFirstName = escapeMarkdown(user.firstName || 'Не указано');
+    if (user.username) {
+      userDisplay = `${safeFirstName} (@${escapeMarkdown(user.username)})`;
+    } else {
+      userDisplay = `${safeFirstName} (без username)`;
+    }
+    if (!user.firstName && !user.username) {
+      userDisplay = `Неизвестный пользователь`;
+    }
+
+    await ctx.deleteMessage();
+    await ctx.telegram.sendPhoto(
+      process.env.ADMIN_ID,
+      user.paymentPhotoId,
+      {
+        caption: `📸 *Новый платёж от пользователя:*\n` +
+          `Имя: ${userDisplay}\n` +
+          `ID: ${userId}`,
+        parse_mode: 'Markdown',
+        ...keyboard
+      }
+    );
+    await ctx.answerCbQuery('Отмена отклонения успешно выполнена.');
+  } else {
+    await ctx.deleteMessage();
+    await ctx.reply('⚠️ Исходный платёж не найден. Процесс отменен.');
   }
 };
