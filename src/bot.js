@@ -114,16 +114,16 @@ bot.use(async (ctx, next) => {
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
       const rejectionComment = ctx.message.text.trim();
-      
+
       // Валидация комментария
       if (rejectionComment.length < 5) {
         return ctx.reply('❌ Комментарий слишком короткий. Минимум 5 символов:');
       }
-      
+
       if (rejectionComment.length > 500) {
         return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
       }
-      
+
       await finalizeRejectionWithComment(ctx, rejectionComment);
       return;
     }

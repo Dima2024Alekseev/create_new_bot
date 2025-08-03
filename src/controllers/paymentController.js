@@ -241,10 +241,10 @@ exports.handleReject = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         await ctx.answerCbQuery('Выберите действие');
-        
+
         // Показываем дополнительные опции для отклонения
         await ctx.reply(
             `❌ *Отклонение платежа пользователя ${userId}*\n\n` +
@@ -280,7 +280,7 @@ exports.handleRejectSimple = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         await User.findOneAndUpdate(
             { userId },
@@ -291,7 +291,7 @@ exports.handleRejectSimple = async (ctx) => {
                 rejectionReason: null // Очищаем предыдущую причину
             }
         );
-        
+
         // Отправляем стандартное сообщение об отклонении
         await ctx.telegram.sendMessage(
             userId,
@@ -304,10 +304,10 @@ exports.handleRejectSimple = async (ctx) => {
             '*Попробуйте отправить чек ещё раз.*',
             { parse_mode: 'Markdown' }
         );
-        
+
         await ctx.answerCbQuery('❌ Платёж отклонён');
         await ctx.editMessageText('✅ Платёж отклонён без комментария');
-        
+
     } catch (error) {
         console.error(`Ошибка при простом отклонении платежа для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
@@ -324,11 +324,11 @@ exports.handleRejectWithComment = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         // Сохраняем ID пользователя для отклонения в сессии
         ctx.session.awaitingRejectionCommentFor = userId;
-        
+
         await ctx.answerCbQuery('Введите комментарий');
         await ctx.editMessageText(
             `✍️ *Отклонение платежа с комментарием*\n\n` +
@@ -343,7 +343,7 @@ exports.handleRejectWithComment = async (ctx) => {
                 }
             }
         );
-        
+
     } catch (error) {
         console.error(`Ошибка при инициации отклонения с комментарием для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка!');
@@ -361,18 +361,18 @@ exports.handleCancelRejection = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         // Очищаем сессию если была начата процедура с комментарием
         if (ctx.session.awaitingRejectionCommentFor === userId) {
             delete ctx.session.awaitingRejectionCommentFor;
         }
-        
+
         // Получаем информацию о пользователе для отображения
         const User = require('../models/User');
         const user = await User.findOne({ userId });
         const { escapeMarkdown } = require('../utils/helpers');
-        
+
         let userDisplay = '';
         const safeFirstName = escapeMarkdown(user?.firstName || 'Не указано');
         if (user?.username) {
@@ -383,9 +383,9 @@ exports.handleCancelRejection = async (ctx) => {
         if (!user?.firstName && !user?.username) {
             userDisplay = `Неизвестный пользователь`;
         }
-        
+
         await ctx.answerCbQuery('Возвращено к рассмотрению');
-        
+
         // Проверяем, есть ли фото в сообщении
         if (ctx.callbackQuery.message.photo) {
             // Если это сообщение с фото, редактируем caption и кнопки
@@ -430,7 +430,7 @@ exports.handleCancelRejection = async (ctx) => {
                 }
             );
         }
-        
+
     } catch (error) {
         console.error(`Ошибка при отмене отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене!');
@@ -447,10 +447,10 @@ exports.handleReviewLater = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         await ctx.answerCbQuery('Платёж отложен для рассмотрения');
-        
+
         // Проверяем, есть ли фото в сообщении
         if (ctx.callbackQuery.message.photo) {
             // Если это сообщение с фото, редактируем caption
@@ -474,9 +474,9 @@ exports.handleReviewLater = async (ctx) => {
                 { parse_mode: 'Markdown' }
             );
         }
-        
+
         console.log(`[ADMIN] Платёж пользователя ${userId} отложен для рассмотрения администратором ${ctx.from.id}`);
-        
+
     } catch (error) {
         console.error(`Ошибка при отложении рассмотрения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка!');
@@ -491,7 +491,7 @@ exports.handleReviewLater = async (ctx) => {
  */
 exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
     const userId = ctx.session.awaitingRejectionCommentFor;
-    
+
     try {
         await User.findOneAndUpdate(
             { userId },
@@ -502,7 +502,7 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
                 rejectionReason: rejectionComment
             }
         );
-        
+
         // Отправляем пользователю только причину отклонения от администратора
         await ctx.telegram.sendMessage(
             userId,
@@ -510,12 +510,12 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
             `*Причина:* ${rejectionComment}`,
             { parse_mode: 'Markdown' }
         );
-        
+
         await ctx.reply(`✅ Платёж пользователя ${userId} отклонён с комментарием: "${rejectionComment}"`);
-        
+
         // Очищаем сессию
         delete ctx.session.awaitingRejectionCommentFor;
-        
+
     } catch (error) {
         console.error(`Ошибка при финальном отклонении с комментарием для пользователя ${userId}:`, error);
         await ctx.reply('⚠️ Произошла ошибка при отклонении платежа с комментарием. Проверьте логи.');
