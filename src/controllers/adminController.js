@@ -228,6 +228,7 @@ exports.checkAdminMenu = async (ctx) => {
         [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
         [Markup.button.callback('👥 Список пользователей', 'list_users_admin')],
         [Markup.button.callback('⭐ Отзывы о VPN', 'list_reviews_admin')],
+        [Markup.button.callback('📢 Массовая рассылка', 'mass_broadcast_admin')],
         [Markup.button.callback('❓ Все вопросы', 'list_questions')],
         [
             Markup.button.callback(
@@ -562,5 +563,307 @@ const getReviewStabilityText = (stability) => {
         case 'average': return 'Средне';
         case 'poor': return 'Плохо';
         default: return 'Не указано';
+    }
+};
+
+/**
+ * Показывает меню массовой рассылки
+ */
+exports.showBroadcastMenu = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    try {
+        const totalUsers = await User.countDocuments();
+        const activeUsers = await User.countDocuments({ status: 'active' });
+        const inactiveUsers = await User.countDocuments({ status: 'inactive' });
+        const pendingUsers = await User.countDocuments({ status: 'pending' });
+
+        await ctx.reply(
+            `📢 *Массовая рассылка*\n\n` +
+            `👥 Всего пользователей: ${totalUsers}\n` +
+            `✅ Активных: ${activeUsers}\n` +
+            `⚪ Неактивных: ${inactiveUsers}\n` +
+            `⏳ На проверке: ${pendingUsers}\n\n` +
+            `Выберите группу для рассылки:`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '👥 Всем пользователям', callback_data: 'broadcast_all' },
+                            { text: '✅ Только активным', callback_data: 'broadcast_active' }
+                        ],
+                        [
+                            { text: '⚪ Только неактивным', callback_data: 'broadcast_inactive' },
+                            { text: '⏳ Ожидающим проверки', callback_data: 'broadcast_pending' }
+                        ],
+                        [
+                            { text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }
+                        ]
+                    ]
+                }
+            }
+        );
+
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery();
+        }
+
+    } catch (error) {
+        console.error('Ошибка при показе меню рассылки:', error);
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('Произошла ошибка!');
+        }
+        await ctx.reply('⚠️ Произошла ошибка при загрузке меню рассылки.');
+    }
+};
+
+/**
+ * Инициирует процесс создания рассылки
+ */
+exports.startBroadcast = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    const targetGroup = ctx.match[1];
+    
+    try {
+        // Сохраняем целевую группу в сессии
+        ctx.session.broadcastTarget = targetGroup;
+        ctx.session.awaitingBroadcastMessage = true;
+
+        const groupNames = {
+            'all': 'всем пользователям',
+            'active': 'активным пользователям',
+            'inactive': 'неактивным пользователям',
+            'pending': 'пользователям на проверке'
+        };
+
+        await ctx.editMessageText(
+            `✍️ *Создание рассылки*\n\n` +
+            `Целевая группа: ${groupNames[targetGroup]}\n\n` +
+            `Напишите сообщение для рассылки:\n` +
+            `(поддерживается Markdown форматирование)`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '❌ Отмена', callback_data: 'cancel_broadcast' }]
+                    ]
+                }
+            }
+        );
+
+        await ctx.answerCbQuery();
+
+    } catch (error) {
+        console.error('Ошибка при инициации рассылки:', error);
+        await ctx.answerCbQuery('⚠️ Произошла ошибка!');
+        await ctx.reply('⚠️ Произошла ошибка при создании рассылки.');
+    }
+};
+
+/**
+ * Подтверждает и выполняет рассылку
+ */
+exports.confirmBroadcast = async (ctx, message) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.reply('🚫 Только для админа');
+    }
+
+    const targetGroup = ctx.session.broadcastTarget;
+    
+    try {
+        // Получаем количество пользователей для рассылки
+        let filter = {};
+        switch (targetGroup) {
+            case 'active':
+                filter = { status: 'active' };
+                break;
+            case 'inactive':
+                filter = { status: 'inactive' };
+                break;
+            case 'pending':
+                filter = { status: 'pending' };
+                break;
+            case 'all':
+            default:
+                filter = {};
+                break;
+        }
+
+        const userCount = await User.countDocuments(filter);
+        
+        if (userCount === 0) {
+            delete ctx.session.broadcastTarget;
+            delete ctx.session.awaitingBroadcastMessage;
+            delete ctx.session.broadcastMessage;
+            return ctx.reply('⚠️ Нет пользователей в выбранной группе для рассылки.');
+        }
+
+        // Сохраняем сообщение в сессии
+        ctx.session.broadcastMessage = message;
+
+        const groupNames = {
+            'all': 'всем пользователям',
+            'active': 'активным пользователям',
+            'inactive': 'неактивным пользователям',
+            'pending': 'пользователям на проверке'
+        };
+
+        // Показываем превью сообщения
+        await ctx.reply(
+            `📋 *Подтверждение рассылки*\n\n` +
+            `Целевая группа: ${groupNames[targetGroup]} (${userCount} чел.)\n\n` +
+            `*Превью сообщения:*\n` +
+            `${message}\n\n` +
+            `Подтвердите отправку:`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '✅ Отправить', callback_data: 'execute_broadcast' },
+                            { text: '❌ Отмена', callback_data: 'cancel_broadcast' }
+                        ]
+                    ]
+                }
+            }
+        );
+
+    } catch (error) {
+        console.error('Ошибка при подтверждении рассылки:', error);
+        await ctx.reply('⚠️ Произошла ошибка при подготовке рассылки.');
+    }
+};
+
+/**
+ * Выполняет массовую рассылку
+ */
+exports.executeBroadcast = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    const targetGroup = ctx.session.broadcastTarget;
+    const message = ctx.session.broadcastMessage;
+
+    if (!targetGroup || !message) {
+        await ctx.answerCbQuery('⚠️ Данные рассылки не найдены');
+        return ctx.reply('⚠️ Данные рассылки не найдены. Попробуйте начать заново.');
+    }
+
+    try {
+        await ctx.answerCbQuery('Начинаю рассылку...');
+        await ctx.editMessageText('🚀 *Рассылка запущена!*\n\nОтправляю сообщения...', { parse_mode: 'Markdown' });
+
+        // Получаем пользователей для рассылки
+        let filter = {};
+        switch (targetGroup) {
+            case 'active':
+                filter = { status: 'active' };
+                break;
+            case 'inactive':
+                filter = { status: 'inactive' };
+                break;
+            case 'pending':
+                filter = { status: 'pending' };
+                break;
+            case 'all':
+            default:
+                filter = {};
+                break;
+        }
+
+        const users = await User.find(filter).select('userId firstName username');
+        
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        // Отправляем сообщения с задержкой для избежания лимитов Telegram
+        for (const user of users) {
+            try {
+                await ctx.telegram.sendMessage(user.userId, message, { parse_mode: 'Markdown' });
+                successCount++;
+                
+                // Задержка между сообщениями (30 сообщений в секунду - лимит Telegram)
+                await new Promise(resolve => setTimeout(resolve, 35));
+                
+            } catch (error) {
+                errorCount++;
+                errors.push({
+                    userId: user.userId,
+                    name: user.firstName || user.username || 'Неизвестный',
+                    error: error.message
+                });
+                
+                // Если пользователь заблокировал бота, можно пометить его как неактивного
+                if (error.code === 403) {
+                    console.log(`Пользователь ${user.userId} заблокировал бота`);
+                }
+            }
+        }
+
+        // Очищаем сессию
+        delete ctx.session.broadcastTarget;
+        delete ctx.session.awaitingBroadcastMessage;
+        delete ctx.session.broadcastMessage;
+
+        // Отчет о рассылке
+        let reportMessage = `✅ *Рассылка завершена!*\n\n` +
+            `📊 Статистика:\n` +
+            `✅ Успешно отправлено: ${successCount}\n` +
+            `❌ Ошибок: ${errorCount}\n` +
+            `👥 Всего пользователей: ${users.length}`;
+
+        if (errorCount > 0 && errorCount <= 5) {
+            reportMessage += `\n\n⚠️ Ошибки:\n`;
+            errors.slice(0, 5).forEach(err => {
+                reportMessage += `• ${err.name} (${err.userId}): ${err.error.substring(0, 50)}...\n`;
+            });
+        } else if (errorCount > 5) {
+            reportMessage += `\n\n⚠️ Показаны первые 5 ошибок из ${errorCount}`;
+        }
+
+        await ctx.editMessageText(reportMessage, { parse_mode: 'Markdown' });
+
+        // Логирование
+        console.log(`[BROADCAST] Admin ${ctx.from.id} sent broadcast to ${targetGroup}: ${successCount} success, ${errorCount} errors`);
+
+    } catch (error) {
+        console.error('Ошибка при выполнении рассылки:', error);
+        await ctx.reply('⚠️ Произошла критическая ошибка при выполнении рассылки.');
+        
+        // Очищаем сессию при ошибке
+        delete ctx.session.broadcastTarget;
+        delete ctx.session.awaitingBroadcastMessage;
+        delete ctx.session.broadcastMessage;
+    }
+};
+
+/**
+ * Отменяет создание рассылки
+ */
+exports.cancelBroadcast = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    try {
+        // Очищаем сессию
+        delete ctx.session.broadcastTarget;
+        delete ctx.session.awaitingBroadcastMessage;
+        delete ctx.session.broadcastMessage;
+
+        await ctx.editMessageText('❌ Создание рассылки отменено.');
+        await ctx.answerCbQuery();
+
+    } catch (error) {
+        console.error('Ошибка при отмене рассылки:', error);
+        await ctx.answerCbQuery('⚠️ Произошла ошибка!');
     }
 };

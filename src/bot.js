@@ -27,7 +27,20 @@ const {
   handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
-const { checkPayments, stats, checkAdminMenu, handlePaymentsPage, listUsers, handleUsersPage, listReviews, handleReviewsPage } = require('./controllers/adminController');
+const {
+  checkPayments,
+  stats,
+  checkAdminMenu,
+  handlePaymentsPage,
+  listUsers,
+  handleUsersPage,
+  listReviews,
+  handleReviewsPage,
+  showBroadcastMenu,
+  startBroadcast,
+  executeBroadcast,
+  cancelBroadcast
+} = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const {
   startReview,
@@ -120,6 +133,25 @@ bot.use(async (ctx, next) => {
       return;
     }
 
+
+    // Обработка сообщения для массовой рассылки
+    if (ctx.session?.awaitingBroadcastMessage && ctx.message?.text) {
+      const broadcastMessage = ctx.message.text.trim();
+      
+      // Валидация сообщения
+      if (broadcastMessage.length < 1) {
+        return ctx.reply('❌ Сообщение не может быть пустым:');
+      }
+      
+      if (broadcastMessage.length > 4000) {
+        return ctx.reply('❌ Сообщение слишком длинное. Максимум 4000 символов:');
+      }
+      
+      ctx.session.awaitingBroadcastMessage = false;
+      const { confirmBroadcast } = require('./controllers/adminController');
+      await confirmBroadcast(ctx, broadcastMessage);
+      return;
+    }
 
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
@@ -239,7 +271,7 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage)) {
     return next();
   }
   
@@ -286,9 +318,13 @@ bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
 bot.action('list_users_admin', listUsers);
 bot.action('list_reviews_admin', listReviews);
+bot.action('mass_broadcast_admin', showBroadcastMenu);
 bot.action(/payments_page_(\d+)/, handlePaymentsPage);
 bot.action(/users_page_(\d+)/, handleUsersPage);
 bot.action(/reviews_page_(\d+)/, handleReviewsPage);
+bot.action(/broadcast_(.+)/, startBroadcast);
+bot.action('execute_broadcast', executeBroadcast);
+bot.action('cancel_broadcast', cancelBroadcast);
 bot.action('back_to_admin_menu', checkAdminMenu);
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
