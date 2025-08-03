@@ -24,6 +24,7 @@ const {
   handleRejectSimple,
   handleRejectWithComment,
   handleCancelRejection,
+  handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
@@ -250,6 +251,7 @@ bot.action(/reject_(\d+)/, handleReject);
 bot.action(/reject_simple_(\d+)/, handleRejectSimple);
 bot.action(/reject_with_comment_(\d+)/, handleRejectWithComment);
 bot.action(/cancel_rejection_(\d+)/, handleCancelRejection);
+bot.action(/review_later_(\d+)/, handleReviewLater);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);

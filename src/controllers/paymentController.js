@@ -54,8 +54,13 @@ exports.handlePhoto = async (ctx) => {
         );
 
         const keyboard = Markup.inlineKeyboard([
-            Markup.button.callback('✅ Принять', `approve_${id}`),
-            Markup.button.callback('❌ Отклонить', `reject_${id}`)
+            [
+                Markup.button.callback('✅ Принять', `approve_${id}`),
+                Markup.button.callback('❌ Отклонить', `reject_${id}`)
+            ],
+            [
+                Markup.button.callback('⏰ Рассмотреть позже', `review_later_${id}`)
+            ]
         ]);
 
         let userDisplay = '';
@@ -348,6 +353,7 @@ exports.handleRejectWithComment = async (ctx) => {
 
 /**
  * Обрабатывает отмену отклонения платежа.
+ * Возвращает к исходным кнопкам "Принять" и "Отклонить".
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handleCancelRejection = async (ctx) => {
@@ -362,17 +368,76 @@ exports.handleCancelRejection = async (ctx) => {
             delete ctx.session.awaitingRejectionCommentFor;
         }
         
-        await ctx.answerCbQuery('Отклонение отменено');
+        // Получаем информацию о пользователе для отображения
+        const User = require('../models/User');
+        const user = await User.findOne({ userId });
+        const { escapeMarkdown } = require('../utils/helpers');
+        
+        let userDisplay = '';
+        const safeFirstName = escapeMarkdown(user?.firstName || 'Не указано');
+        if (user?.username) {
+            userDisplay = `${safeFirstName} (@${escapeMarkdown(user.username)})`;
+        } else {
+            userDisplay = `${safeFirstName} (без username)`;
+        }
+        if (!user?.firstName && !user?.username) {
+            userDisplay = `Неизвестный пользователь`;
+        }
+        
+        await ctx.answerCbQuery('Возвращено к рассмотрению');
         await ctx.editMessageText(
-            `🔄 *Отклонение отменено*\n\n` +
-            `Платёж пользователя ${userId} остается на рассмотрении.`,
-            { parse_mode: 'Markdown' }
+            `📸 *Заявка на оплату от пользователя:*\n` +
+            `Имя: ${userDisplay}\n` +
+            `ID: ${userId}`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '✅ Принять', callback_data: `approve_${userId}` },
+                            { text: '❌ Отклонить', callback_data: `reject_${userId}` }
+                        ],
+                        [
+                            { text: '⏰ Рассмотреть позже', callback_data: `review_later_${userId}` }
+                        ]
+                    ]
+                }
+            }
         );
         
     } catch (error) {
         console.error(`Ошибка при отмене отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене!');
         await ctx.reply('⚠️ Произошла ошибка при отмене отклонения. Проверьте логи.');
+    }
+};
+
+/**
+ * Обрабатывает отложение рассмотрения платежа.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
+exports.handleReviewLater = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    const userId = parseInt(ctx.match[1]);
+    
+    try {
+        await ctx.answerCbQuery('Платёж отложен для рассмотрения');
+        await ctx.editMessageText(
+            `⏰ *Платёж отложен для рассмотрения*\n\n` +
+            `Пользователь: ${userId}\n` +
+            `Статус: Ожидает рассмотрения\n\n` +
+            `_Платёж можно найти через команду /check_`,
+            { parse_mode: 'Markdown' }
+        );
+        
+        console.log(`[ADMIN] Платёж пользователя ${userId} отложен для рассмотрения администратором ${ctx.from.id}`);
+        
+    } catch (error) {
+        console.error(`Ошибка при отложении рассмотрения для пользователя ${userId}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка!');
+        await ctx.reply('⚠️ Произошла ошибка при отложении рассмотрения. Проверьте логи.');
     }
 };
 
