@@ -120,19 +120,6 @@ bot.use(async (ctx, next) => {
       return;
     }
 
-    // Обработка комментария к отзыву
-    if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
-      const reviewComment = ctx.message.text.trim();
-      
-      // Валидация комментария
-      if (reviewComment.length > 500) {
-        return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
-      }
-      
-      ctx.session.awaitingReviewComment = false;
-      await finishReview(ctx, reviewComment);
-      return;
-    }
 
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
@@ -192,6 +179,20 @@ bot.use(async (ctx, next) => {
       await finalizePriceChange(ctx, newPrice);
       return;
     }
+  }
+
+  // Обработка комментария к отзыву (для всех пользователей)
+  if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
+    const reviewComment = ctx.message.text.trim();
+    
+    // Валидация комментария
+    if (reviewComment.length > 500) {
+      return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
+    }
+    
+    ctx.session.awaitingReviewComment = false;
+    await finishReview(ctx, reviewComment);
+    return;
   }
 
   // Обработка проблемы с VPN от пользователя
