@@ -26,20 +26,16 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // НОВОЕ ПОЛЕ: Флаг успешной настройки VPN
   vpnConfigured: {
     type: Boolean,
-    default: false,
+    default: false, // По умолчанию пользователь еще не настроил VPN
   },
+  // НОВОЕ ПОЛЕ: Имя VPN-клиента для отзыва доступа
   vpnClientName: {
     type: String,
     default: null,
   },
-  paymentPhotoDate: Date,
-  rejectionComment: {
-    type: String,
-    default: null
-  },
-  lastReminder: Date
-}, { timestamps: true });
+});
 
 module.exports = mongoose.model('User', userSchema);

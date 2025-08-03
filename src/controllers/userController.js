@@ -1,9 +1,12 @@
+// src/controllers/userController.js
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { Markup } = require('telegraf');
-const { formatDate, formatDuration, paymentDetails, escapeMarkdown } = require('../utils/helpers');
+const { formatDate, formatDuration, paymentDetails } = require('../utils/helpers');
 const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
+
+// ... (остальные функции)
 
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
@@ -31,7 +34,7 @@ exports.handleStart = async (ctx) => {
             if (expireDate && expireDate < now) {
                 user.status = 'inactive';
                 await user.save();
-                statusText = '❌ *Ваша подписка истекла.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.';
+                statusText = '❌ *Ваша подписка истекла.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.\n\nЕсли у вас есть вопросы - просто напишите сообщение, и администратор ответит вам.';
                 keyboardButtons.push(
                     [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
                 );
@@ -47,7 +50,7 @@ exports.handleStart = async (ctx) => {
 
                 keyboardButtons.push(
                     [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
-                    [{ text: '🗓 Посмотреть срок действия', callback_data: 'check_subscription' }],
+                    [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
                     [{ text: '❌ Отменить подписку', callback_data: 'cancel_subscription_confirm' }]
                 );
             }
@@ -62,22 +65,14 @@ exports.handleStart = async (ctx) => {
             keyboardButtons.push([{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]);
 
         } else if (user.status === 'rejected') {
-            statusText = '❌ *Ваш платёж был отклонён.*\n\n';
-
-            if (user.rejectionComment) {
-                statusText += `*Причина отклонения:*\n${escapeMarkdown(user.rejectionComment)}\n\n`;
-            }
-
-            statusText += 'Пожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
-
+            statusText = '❌ *Ваш платёж был отклонён.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
             keyboardButtons.push(
-                [{ text: '💰 Повторить оплату', callback_data: 'extend_subscription' }],
-                [{ text: '❓ Уточнить причину', callback_data: 'ask_rejection_reason' }]
+                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
         }
 
         await ctx.reply(
-            `👋 Привет, *${escapeMarkdown(user.firstName || 'Пользователь')}!* Я бот для управления VPN.\n\n` + statusText,
+            `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
             {
                 parse_mode: 'Markdown',
                 reply_markup: {
@@ -90,31 +85,6 @@ exports.handleStart = async (ctx) => {
         console.error('Ошибка в handleStart:', error);
         await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
     }
-};
-
-exports.askRejectionReason = async (ctx) => {
-    await ctx.answerCbQuery();
-    const user = await User.findOne({ userId: ctx.from.id });
-
-    if (user?.rejectionComment) {
-        await ctx.reply(
-            `ℹ️ *Подробности отклонения платежа:*\n\n` +
-            `${escapeMarkdown(user.rejectionComment)}\n\n` +
-            `Если вам нужна дополнительная помощь, напишите сообщение, и администратор ответит вам.`,
-            { parse_mode: 'Markdown' }
-        );
-    } else {
-        await ctx.reply(
-            'ℹ️ Причина отклонения не указана. Вы можете задать вопрос администратору, нажав кнопку ниже.',
-            Markup.inlineKeyboard([
-                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
-            ])
-        );
-    }
-    
-    // Устанавливаем флаг для последующей обработки текстового сообщения
-    ctx.session.awaitingRejectionDetails = true;
-    ctx.session.awaitingPaymentProof = false;
 };
 
 exports.checkSubscriptionStatus = async (ctx) => {
@@ -133,9 +103,9 @@ exports.checkSubscriptionStatus = async (ctx) => {
         if (timeLeft > 0) {
             const duration = formatDuration(timeLeft);
             await ctx.reply(
-                `✅ *Ваша подписка активна!*\n\n` +
-                `Срок действия: *${formatDate(user.expireDate, true)}*\n` +
-                `Осталось: *${duration}*`,
+                `✅ *Ваша подписка активна!*` +
+                `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
+                `\nОсталось: *${duration}*`,
                 { parse_mode: 'Markdown' }
             );
         } else {
@@ -157,16 +127,8 @@ exports.extendSubscription = async (ctx) => {
 
     try {
         await ctx.answerCbQuery();
-        const user = await User.findOne({ userId });
-
-        let paymentMessage = await paymentDetails(userId, name);
-
-        if (user?.rejectionComment) {
-            paymentMessage += `\n\n*Предыдущий комментарий отклонения:*\n` +
-                `"${escapeMarkdown(user.rejectionComment)}"\n\n` +
-                `Учтите замечания при повторной оплате.`;
-        }
-
+        // Исправлено: Дожидаемся выполнения paymentDetails
+        const paymentMessage = await paymentDetails(userId, name);
         await ctx.replyWithMarkdown(
             paymentMessage +
             `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
@@ -224,8 +186,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             {
                 status: 'inactive',
                 expireDate: null,
-                vpnConfigured: false,
-                rejectionComment: null // Сбрасываем комментарий при отмене
+                vpnConfigured: false
             }
         );
 
@@ -234,7 +195,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
 
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 *Оповещение:* Пользователь *${escapeMarkdown(name)}* (ID: ${userId}) отменил подписку.\n` +
+            `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.\n` +
             `VPN-клиент *${user.vpnClientName || 'не указан'}* отключён.`,
             { parse_mode: 'Markdown' }
         );
@@ -266,18 +227,13 @@ exports.handleVpnConfigured = async (ctx) => {
     );
 
     try {
-        await User.updateOne(
-            { userId },
-            { vpnConfigured: true }
-        );
-
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `✅ *Оповещение:* Пользователь *${escapeMarkdown(name)}* (ID: ${userId}) успешно настроил VPN.`,
+            `✅ *Оповещение:* Пользователь *${name}* (ID: ${userId}) успешно настроил VPN.`,
             { parse_mode: 'Markdown' }
         );
     } catch (error) {
-        console.error(`Ошибка при отправке оповещения администратору:`, error);
+        console.error(`Ошибка при отправке оповещения администратору о настройке VPN для пользователя ${userId}:`, error);
     }
 };
 

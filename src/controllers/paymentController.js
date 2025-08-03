@@ -5,7 +5,13 @@ const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers'
 const { createVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
 
+/**
+ * Обрабатывает загруженный пользователем скриншот оплаты.
+ * Сохраняет скриншот в БД и отправляет его администратору для проверки.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.handlePhoto = async (ctx) => {
+    // ⚠️ НОВОЕ: Проверка, находится ли пользователь в состоянии ожидания скриншота
     if (!ctx.session.awaitingPaymentProof) {
         const userId = ctx.from.id;
         const user = await User.findOne({ userId });
@@ -26,6 +32,7 @@ exports.handlePhoto = async (ctx) => {
     const user = await User.findOne({ userId: id });
 
     if (user && user.status === 'pending') {
+        // ⚠️ Сбросим флаг, чтобы пользователь не мог отправить ещё один скриншот
         ctx.session.awaitingPaymentProof = false;
         return ctx.reply('⏳ Ваш скриншот уже на проверке у администратора. Пожалуйста, подождите.');
     }
@@ -41,8 +48,7 @@ exports.handlePhoto = async (ctx) => {
                 firstName: first_name,
                 paymentPhotoId: photo.file_id,
                 paymentPhotoDate: new Date(),
-                status: 'pending',
-                rejectionComment: null // Сбрасываем предыдущий комментарий
+                status: 'pending'
             },
             { upsert: true, new: true }
         );
@@ -69,22 +75,28 @@ exports.handlePhoto = async (ctx) => {
             {
                 caption: `📸 *Новый платёж от пользователя:*\n` +
                     `Имя: ${userDisplay}\n` +
-                    `ID: ${id}` +
-                    (user?.rejectionComment ? `\n\n*Предыдущий комментарий отклонения:*\n${user.rejectionComment}` : ''),
+                    `ID: ${id}`,
                 parse_mode: 'Markdown',
                 ...keyboard
             }
         );
 
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+        // ⚠️ НОВОЕ: Сброс флага после успешной отправки скриншота
         ctx.session.awaitingPaymentProof = false;
     } catch (error) {
         console.error('Ошибка при обработке фото/платежа:', error);
         await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
+        // ⚠️ НОВОЕ: Сброс флага при ошибке, чтобы избежать застревания пользователя в состоянии ожидания
         ctx.session.awaitingPaymentProof = false;
     }
 };
 
+/**
+ * Обрабатывает одобрение платежа администратором.
+ * Активирует подписку пользователя и отправляет уведомление.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.handleApprove = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
@@ -120,7 +132,6 @@ exports.handleApprove = async (ctx) => {
             expireDate: newExpireDate,
             paymentPhotoId: null,
             paymentPhotoDate: null,
-            rejectionComment: null, // Сбрасываем комментарий при одобрении
             $inc: { subscriptionCount: 1 }
         };
 
@@ -138,6 +149,7 @@ exports.handleApprove = async (ctx) => {
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
+        // Логика для первого платежа
         if (updatedUser.subscriptionCount === 1) {
             try {
                 const configContent = await createVpnClient(clientName);
@@ -168,14 +180,36 @@ exports.handleApprove = async (ctx) => {
                         ]
                     ])
                 );
+                await ctx.telegram.sendMessage(
+                    process.env.ADMIN_ID,
+                    `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
+                    `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
+                    `ID: ${userId}\n` +
+                    `Срок действия: ${formatDate(newExpireDate, true)}`,
+                    { parse_mode: 'Markdown' }
+                );
             } catch (vpnError) {
                 console.error(`Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
                 await ctx.telegram.sendMessage(
                     userId,
-                    `⚠️ *Произошла ошибка при автоматической генерации файла конфигурации VPN.*`
+                    `⚠️ *Произошла ошибка при автоматической генерации файла конфигурации VPN.*` +
+                    `\nПожалуйста, свяжитесь с администратором.`
+                );
+                await ctx.telegram.sendMessage(
+                    process.env.ADMIN_ID,
+                    `🚨 *Критическая ошибка при создании VPN для пользователя ${userId}:*\n` +
+                    `\`\`\`\n${vpnError.stack}\n\`\`\``,
+                    { parse_mode: 'Markdown' }
                 );
             }
-        } else {
+        } else { // Логика для продления
+            try {
+                await enableVpnClient(clientName);
+                console.log(`Клиент ${clientName} был успешно включен.`);
+            } catch (vpnError) {
+                console.error(`Ошибка при включении VPN-клиента для ${clientName}:`, vpnError);
+            }
+
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
                 `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
@@ -192,46 +226,28 @@ exports.handleApprove = async (ctx) => {
     }
 };
 
+/**
+ * Обрабатывает отклонение платежа администратором.
+ * Устанавливает статус пользователя как "rejected" и уведомляет его.
+ * @param {object} ctx - Объект контекста Telegraf.
+ */
 exports.handleReject = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-
     const userId = parseInt(ctx.match[1]);
-    ctx.session.rejectingPaymentFor = userId;
-
-    await ctx.answerCbQuery();
-    await ctx.deleteMessage();
-
-    await ctx.reply(
-        '✍️ Укажите причину отклонения платежа (максимум 200 символов):',
-        Markup.inlineKeyboard([
-            [Markup.button.callback('❌ Отменить отклонение', 'cancel_rejection')]
-        ])
-    );
-};
-
-exports.handleRejectionComment = async (ctx) => {
-    if (!ctx.session.rejectingPaymentFor) return;
-
-    const userId = ctx.session.rejectingPaymentFor;
-    const comment = ctx.message.text.slice(0, 200);
-
     try {
         await User.findOneAndUpdate(
             { userId },
             {
                 status: 'rejected',
                 paymentPhotoId: null,
-                paymentPhotoDate: null,
-                rejectionComment: comment
+                paymentPhotoDate: null
             }
         );
-
         await ctx.telegram.sendMessage(
             userId,
             '❌ *Платёж отклонён*\n\n' +
-            `*Причина:* ${comment}\n\n` +
             'Возможные причины:\n' +
             '- Неверная сумма\n' +
             '- Нет комментария к платежу\n' +
@@ -239,24 +255,11 @@ exports.handleRejectionComment = async (ctx) => {
             '*Попробуйте отправить чек ещё раз.*',
             { parse_mode: 'Markdown' }
         );
-
-        await ctx.reply(`✅ Платёж пользователя ${userId} отклонён с комментарием`);
-
+        await ctx.answerCbQuery('❌ Платёж отклонён');
+        await ctx.deleteMessage();
     } catch (error) {
-        console.error(`Ошибка при отклонении платежа:`, error);
-        await ctx.reply('⚠️ Произошла ошибка при отклонении платежа');
-    } finally {
-        delete ctx.session.rejectingPaymentFor;
+        console.error(`Ошибка при отклонении платежа для пользователя ${userId}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
+        await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
     }
-};
-
-exports.cancelRejection = async (ctx) => {
-    if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
-    }
-
-    delete ctx.session.rejectingPaymentFor;
-    await ctx.answerCbQuery('❌ Отклонение отменено');
-    await ctx.deleteMessage();
-    await ctx.reply('Отклонение платежа отменено. Пользователь остаётся в статусе "ожидает проверки".');
 };
