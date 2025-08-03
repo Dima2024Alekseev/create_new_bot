@@ -225,6 +225,7 @@ exports.checkAdminMenu = async (ctx) => {
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
         [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
+        [Markup.button.callback('👥 Список пользователей', 'list_users_admin')],
         [Markup.button.callback('❓ Все вопросы', 'list_questions')],
         [
             Markup.button.callback(
@@ -235,4 +236,174 @@ exports.checkAdminMenu = async (ctx) => {
     ]);
 
     await ctx.reply('⚙️ Панель администратора:', keyboard);
+};
+
+/**
+ * Показывает список пользователей с пагинацией
+ */
+exports.listUsers = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    try {
+        // Показываем первую страницу
+        await showUsersPage(ctx, 1);
+        
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery();
+        }
+    } catch (error) {
+        console.error('Ошибка при получении списка пользователей:', error);
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('Произошла ошибка!');
+        }
+        await ctx.reply('⚠️ Произошла ошибка при загрузке списка пользователей.');
+    }
+};
+
+/**
+ * Показывает страницу с пользователями
+ */
+const showUsersPage = async (ctx, page = 1) => {
+    const USERS_PER_PAGE = 10; // Количество пользователей на страницу
+    const skip = (page - 1) * USERS_PER_PAGE;
+    
+    try {
+        // Получаем общее количество пользователей
+        const totalUsers = await User.countDocuments();
+        
+        if (totalUsers === 0) {
+            return ctx.reply('👥 Пользователей пока нет.');
+        }
+        
+        // Получаем пользователей для текущей страницы
+        const users = await User.find({})
+            .sort({ createdAt: -1 }) // Сортируем по дате регистрации (новые сначала)
+            .skip(skip)
+            .limit(USERS_PER_PAGE);
+        
+        const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
+        
+        // Формируем сообщение со списком пользователей
+        let message = `👥 *Список пользователей*\n\n`;
+        message += `📄 Страница ${page} из ${totalPages} (Всего: ${totalUsers})\n\n`;
+        
+        for (const user of users) {
+            const statusEmoji = getStatusEmoji(user.status);
+            const subscriptionInfo = getSubscriptionInfo(user);
+            
+            message += `${statusEmoji} *${user.firstName || user.username || 'Без имени'}*\n`;
+            message += `   ID: \`${user.userId}\`\n`;
+            if (user.username) {
+                message += `   Username: @${user.username}\n`;
+            }
+            message += `   Статус: ${getStatusText(user.status)}\n`;
+            message += `   ${subscriptionInfo}\n`;
+            message += `   Подписок: ${user.subscriptionCount || 0}\n\n`;
+        }
+        
+        // Создаем кнопки навигации
+        const navigationButtons = [];
+        
+        if (totalPages > 1) {
+            // Кнопка "Предыдущая страница"
+            if (page > 1) {
+                navigationButtons.push({ text: '⬅️ Предыдущая', callback_data: `users_page_${page - 1}` });
+            }
+            
+            // Кнопка "Следующая страница"
+            if (page < totalPages) {
+                navigationButtons.push({ text: 'Следующая ➡️', callback_data: `users_page_${page + 1}` });
+            }
+            
+            // Кнопка обновления
+            navigationButtons.push({ text: '🔄 Обновить', callback_data: `users_page_${page}` });
+        }
+        
+        const keyboard = [];
+        if (navigationButtons.length > 0) {
+            keyboard.push(navigationButtons);
+        }
+        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
+        
+        await ctx.replyWithMarkdown(message, {
+            reply_markup: {
+                inline_keyboard: keyboard
+            }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при показе страницы пользователей:', error);
+        await ctx.reply('⚠️ Произошла ошибка при загрузке пользователей.');
+    }
+};
+
+/**
+ * Обрабатывает переход на определенную страницу пользователей
+ */
+exports.handleUsersPage = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    
+    const page = parseInt(ctx.match[1]);
+    
+    try {
+        await ctx.answerCbQuery(`Загружаю страницу ${page}...`);
+        await showUsersPage(ctx, page);
+    } catch (error) {
+        console.error(`Ошибка при переходе на страницу пользователей ${page}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при загрузке страницы!');
+        await ctx.reply('⚠️ Произошла ошибка при переходе на страницу.');
+    }
+};
+
+/**
+ * Возвращает эмодзи для статуса пользователя
+ */
+const getStatusEmoji = (status) => {
+    switch (status) {
+        case 'active': return '✅';
+        case 'pending': return '⏳';
+        case 'rejected': return '❌';
+        case 'inactive': return '⚪';
+        default: return '❓';
+    }
+};
+
+/**
+ * Возвращает текстовое описание статуса
+ */
+const getStatusText = (status) => {
+    switch (status) {
+        case 'active': return 'Активна';
+        case 'pending': return 'На проверке';
+        case 'rejected': return 'Отклонена';
+        case 'inactive': return 'Неактивна';
+        default: return 'Неизвестно';
+    }
+};
+
+/**
+ * Возвращает информацию о подписке пользователя
+ */
+const getSubscriptionInfo = (user) => {
+    if (user.status === 'active' && user.expireDate) {
+        const now = new Date();
+        const expireDate = new Date(user.expireDate);
+        
+        if (expireDate > now) {
+            const daysLeft = Math.ceil((expireDate - now) / (1000 * 60 * 60 * 24));
+            return `Истекает: ${formatDate(expireDate)} (${daysLeft} дн.)`;
+        } else {
+            return `Истекла: ${formatDate(expireDate)}`;
+        }
+    } else if (user.status === 'pending') {
+        return 'Ожидает подтверждения оплаты';
+    } else if (user.status === 'rejected') {
+        return user.rejectionReason ? `Отклонена: ${user.rejectionReason}` : 'Отклонена';
+    } else {
+        return 'Подписки нет';
+    }
 };

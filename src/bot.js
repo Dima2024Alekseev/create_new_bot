@@ -27,7 +27,7 @@ const {
   handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
-const { checkPayments, stats, checkAdminMenu, handlePaymentsPage } = require('./controllers/adminController');
+const { checkPayments, stats, checkAdminMenu, handlePaymentsPage, listUsers, handleUsersPage } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
@@ -256,7 +256,10 @@ bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
+bot.action('list_users_admin', listUsers);
 bot.action(/payments_page_(\d+)/, handlePaymentsPage);
+bot.action(/users_page_(\d+)/, handleUsersPage);
+bot.action('back_to_admin_menu', checkAdminMenu);
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
