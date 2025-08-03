@@ -51,6 +51,7 @@ exports.handleStart = async (ctx) => {
                 keyboardButtons.push(
                     [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
                     [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
+                    [{ text: '⭐ Оставить отзыв о VPN', callback_data: 'leave_review' }],
                     [{ text: '❌ Отменить подписку', callback_data: 'cancel_subscription_confirm' }]
                 );
             }

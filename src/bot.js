@@ -27,8 +27,17 @@ const {
   handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
-const { checkPayments, stats, checkAdminMenu, handlePaymentsPage, listUsers, handleUsersPage } = require('./controllers/adminController');
+const { checkPayments, stats, checkAdminMenu, handlePaymentsPage, listUsers, handleUsersPage, listReviews, handleReviewsPage } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
+const {
+  startReview,
+  handleRating,
+  handleSpeed,
+  handleStability,
+  requestComment,
+  finishReview,
+  cancelReview
+} = require('./controllers/reviewController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
 const { setConfig, getConfig } = require('./services/configService');
@@ -111,19 +120,33 @@ bot.use(async (ctx, next) => {
       return;
     }
 
+    // Обработка комментария к отзыву
+    if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
+      const reviewComment = ctx.message.text.trim();
+      
+      // Валидация комментария
+      if (reviewComment.length > 500) {
+        return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
+      }
+      
+      ctx.session.awaitingReviewComment = false;
+      await finishReview(ctx, reviewComment);
+      return;
+    }
+
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
       const rejectionComment = ctx.message.text.trim();
-
+      
       // Валидация комментария
       if (rejectionComment.length < 5) {
         return ctx.reply('❌ Комментарий слишком короткий. Минимум 5 символов:');
       }
-
+      
       if (rejectionComment.length > 500) {
         return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
       }
-
+      
       await finalizeRejectionWithComment(ctx, rejectionComment);
       return;
     }
@@ -218,6 +241,10 @@ bot.on('text', async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor)) {
     return next();
   }
+  
+  if (ctx.session?.awaitingReviewComment) {
+    return next();
+  }
 
   if (ctx.session?.awaitingPaymentProof) {
     return ctx.reply('⚠️ Пожалуйста, отправьте скриншот оплаты, а не текст. Если вы передумали, нажмите /start.');
@@ -257,8 +284,10 @@ bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
 bot.action('refresh_stats', stats);
 bot.action('list_users_admin', listUsers);
+bot.action('list_reviews_admin', listReviews);
 bot.action(/payments_page_(\d+)/, handlePaymentsPage);
 bot.action(/users_page_(\d+)/, handleUsersPage);
+bot.action(/reviews_page_(\d+)/, handleReviewsPage);
 bot.action('back_to_admin_menu', checkAdminMenu);
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
@@ -328,6 +357,7 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
 bot.action('check_subscription', checkSubscriptionStatus);
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', extendSubscription);
+bot.action('leave_review', startReview);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 
@@ -335,6 +365,14 @@ bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 bot.action('cancel_subscription_confirm', promptCancelSubscription);
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
+
+// Обработчики для отзывов
+bot.action(/review_rating_(\d+)/, handleRating);
+bot.action(/review_speed_(.+)/, handleSpeed);
+bot.action(/review_stability_(.+)/, handleStability);
+bot.action('review_add_comment', requestComment);
+bot.action('review_finish', finishReview);
+bot.action('review_cancel', cancelReview);
 
 // --- Напоминания ---
 setupReminders(bot);

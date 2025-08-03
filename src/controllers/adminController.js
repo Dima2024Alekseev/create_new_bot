@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
+const Review = require('../models/Review');
 const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
@@ -226,6 +227,7 @@ exports.checkAdminMenu = async (ctx) => {
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
         [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
         [Markup.button.callback('👥 Список пользователей', 'list_users_admin')],
+        [Markup.button.callback('⭐ Отзывы о VPN', 'list_reviews_admin')],
         [Markup.button.callback('❓ Все вопросы', 'list_questions')],
         [
             Markup.button.callback(
@@ -405,5 +407,160 @@ const getSubscriptionInfo = (user) => {
         return user.rejectionReason ? `Отклонена: ${user.rejectionReason}` : 'Отклонена';
     } else {
         return 'Подписки нет';
+    }
+};
+
+/**
+ * Показывает отзывы о VPN
+ */
+exports.listReviews = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    try {
+        // Показываем первую страницу отзывов
+        await showReviewsPage(ctx, 1);
+        
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery();
+        }
+    } catch (error) {
+        console.error('Ошибка при получении отзывов:', error);
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('Произошла ошибка!');
+        }
+        await ctx.reply('⚠️ Произошла ошибка при загрузке отзывов.');
+    }
+};
+
+/**
+ * Показывает страницу с отзывами
+ */
+const showReviewsPage = async (ctx, page = 1) => {
+    const REVIEWS_PER_PAGE = 5; // Количество отзывов на страницу
+    const skip = (page - 1) * REVIEWS_PER_PAGE;
+    
+    try {
+        // Получаем общее количество отзывов
+        const totalReviews = await Review.countDocuments();
+        
+        if (totalReviews === 0) {
+            return ctx.reply('⭐ Отзывов пока нет.');
+        }
+        
+        // Получаем отзывы для текущей страницы
+        const reviews = await Review.find({})
+            .sort({ createdAt: -1 }) // Сортируем по дате (новые сначала)
+            .skip(skip)
+            .limit(REVIEWS_PER_PAGE);
+        
+        const totalPages = Math.ceil(totalReviews / REVIEWS_PER_PAGE);
+        
+        // Вычисляем средний рейтинг
+        const avgRatingResult = await Review.aggregate([
+            { $group: { _id: null, avgRating: { $avg: "$rating" } } }
+        ]);
+        const avgRating = avgRatingResult.length > 0 ? avgRatingResult[0].avgRating.toFixed(1) : '0.0';
+        
+        // Формируем сообщение с отзывами
+        let message = `⭐ *Отзывы о VPN*\n\n`;
+        message += `📊 Средний рейтинг: ${avgRating}/5 (${totalReviews} отзывов)\n`;
+        message += `📄 Страница ${page} из ${totalPages}\n\n`;
+        
+        for (const review of reviews) {
+            const stars = '⭐'.repeat(review.rating);
+            const speedText = getReviewSpeedText(review.vpnSpeed);
+            const stabilityText = getReviewStabilityText(review.vpnStability);
+            
+            message += `${stars} *${review.firstName || review.username || 'Аноним'}*\n`;
+            message += `   ID: \`${review.userId}\`\n`;
+            message += `   🚀 Скорость: ${speedText}\n`;
+            message += `   🔒 Стабильность: ${stabilityText}\n`;
+            if (review.comment) {
+                message += `   💬 "${review.comment}"\n`;
+            }
+            message += `   📅 ${formatDate(review.createdAt, true)}\n\n`;
+        }
+        
+        // Создаем кнопки навигации
+        const navigationButtons = [];
+        
+        if (totalPages > 1) {
+            // Кнопка "Предыдущая страница"
+            if (page > 1) {
+                navigationButtons.push({ text: '⬅️ Предыдущая', callback_data: `reviews_page_${page - 1}` });
+            }
+            
+            // Кнопка "Следующая страница"
+            if (page < totalPages) {
+                navigationButtons.push({ text: 'Следующая ➡️', callback_data: `reviews_page_${page + 1}` });
+            }
+            
+            // Кнопка обновления
+            navigationButtons.push({ text: '🔄 Обновить', callback_data: `reviews_page_${page}` });
+        }
+        
+        const keyboard = [];
+        if (navigationButtons.length > 0) {
+            keyboard.push(navigationButtons);
+        }
+        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
+        
+        await ctx.replyWithMarkdown(message, {
+            reply_markup: {
+                inline_keyboard: keyboard
+            }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при показе страницы отзывов:', error);
+        await ctx.reply('⚠️ Произошла ошибка при загрузке отзывов.');
+    }
+};
+
+/**
+ * Обрабатывает переход на определенную страницу отзывов
+ */
+exports.handleReviewsPage = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+    
+    const page = parseInt(ctx.match[1]);
+    
+    try {
+        await ctx.answerCbQuery(`Загружаю страницу ${page}...`);
+        await showReviewsPage(ctx, page);
+    } catch (error) {
+        console.error(`Ошибка при переходе на страницу отзывов ${page}:`, error);
+        await ctx.answerCbQuery('⚠️ Ошибка при загрузке страницы!');
+        await ctx.reply('⚠️ Произошла ошибка при переходе на страницу.');
+    }
+};
+
+/**
+ * Возвращает текстовое описание скорости для отзывов
+ */
+const getReviewSpeedText = (speed) => {
+    switch (speed) {
+        case 'excellent': return 'Отлично';
+        case 'good': return 'Хорошо';
+        case 'average': return 'Средне';
+        case 'poor': return 'Плохо';
+        default: return 'Не указано';
+    }
+};
+
+/**
+ * Возвращает текстовое описание стабильности для отзывов
+ */
+const getReviewStabilityText = (stability) => {
+    switch (stability) {
+        case 'excellent': return 'Отлично';
+        case 'good': return 'Хорошо';
+        case 'average': return 'Средне';
+        case 'poor': return 'Плохо';
+        default: return 'Не указано';
     }
 };
