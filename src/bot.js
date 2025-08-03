@@ -17,7 +17,7 @@ const {
   cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove, handleReject, sendRejectionMessage } = require('./controllers/paymentController');
+const paymentController = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
@@ -145,19 +145,7 @@ bot.use(async (ctx, next) => {
 
     // Обработка комментария при отклонении платежа
     if (ctx.session?.awaitingRejectComment && ctx.message?.text) {
-      const comment = ctx.message.text;
-      const userId = ctx.session.rejectingUserId;
-
-      await User.findOneAndUpdate(
-        { userId },
-        { rejectionReason: comment }
-      );
-
-      await ctx.reply(`✅ Комментарий добавлен к отклонённому платежу пользователя ${userId}`);
-      await sendRejectionMessage(userId, comment);
-
-      delete ctx.session.awaitingRejectComment;
-      delete ctx.session.rejectingUserId;
+      await paymentController.handleRejectComment(ctx);
       return;
     }
   }
@@ -206,9 +194,9 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) &&
-    (ctx.session?.awaitingAnswerFor ||
-      ctx.session?.awaitingAnswerVpnIssueFor ||
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && 
+     (ctx.session?.awaitingAnswerFor || 
+      ctx.session?.awaitingAnswerVpnIssueFor || 
       ctx.session?.awaitingNewPrice ||
       ctx.session?.awaitingRejectComment)) {
     return next();
@@ -236,13 +224,13 @@ bot.command('stats', stats);
 bot.command('questions', listQuestions);
 
 // --- Обработка платежей ---
-bot.on('photo', handlePhoto);
+bot.on('photo', (ctx) => paymentController.handlePhoto(ctx));
 
 // --- Обработчики callback_data ---
 
 // Кнопки админа
-bot.action(/approve_(\d+)/, handleApprove);
-bot.action(/reject_(\d+)/, handleReject);
+bot.action(/approve_(\d+)/, (ctx) => paymentController.handleApprove(ctx));
+bot.action(/reject_(\d+)/, (ctx) => paymentController.handleReject(ctx));
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
@@ -312,43 +300,9 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
 });
 
 // Обработка отклоненных платежей
-bot.action(/add_reject_comment_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-
-  const userId = ctx.match[1];
-  ctx.session.rejectingUserId = userId;
-  ctx.session.awaitingRejectComment = true;
-
-  await ctx.reply('✍️ Введите комментарий для пользователя:');
-  await ctx.answerCbQuery();
-});
-
-bot.action(/undo_reject_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-
-  const userId = ctx.match[1];
-
-  await User.findOneAndUpdate(
-    { userId },
-    {
-      status: 'pending',
-      rejectedByAdmin: false,
-      rejectionReason: null
-    }
-  );
-
-  await ctx.reply(`✅ Отклонение платежа пользователя ${userId} отменено`);
-  await ctx.answerCbQuery();
-});
-
-bot.action(/confirm_reject_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-
-  const userId = ctx.match[1];
-  await sendRejectionMessage(userId);
-  await ctx.reply(`✅ Платёж пользователя ${userId} отклонён без комментария`);
-  await ctx.answerCbQuery();
-});
+bot.action(/add_reject_comment_(\d+)/, (ctx) => paymentController.handleAddRejectComment(ctx));
+bot.action(/undo_reject_(\d+)/, (ctx) => paymentController.handleUndoReject(ctx));
+bot.action(/confirm_reject_(\d+)/, (ctx) => paymentController.handleConfirmReject(ctx));
 
 // --- Кнопки пользователя ---
 bot.action('check_subscription', checkSubscriptionStatus);
