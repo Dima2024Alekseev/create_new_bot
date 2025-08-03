@@ -17,17 +17,12 @@ const {
   cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove } = require('./controllers/paymentController');
+const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
 const { setConfig, getConfig } = require('./services/configService');
-const {
-  handleReject,
-  handleRejectWithComment,
-  cancelReject
-} = require('./controllers/paymentController');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
@@ -76,7 +71,7 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для обработки админских ответов, новой цены и комментария к отклонению платежа ---
+// --- Middleware для обработки админских ответов и новой цены ---
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // Обработка ответа на вопрос пользователя
@@ -104,15 +99,6 @@ bot.use(async (ctx, next) => {
       } finally {
         ctx.session.awaitingAnswerVpnIssueFor = null;
       }
-      return;
-    }
-
-    // Обработка комментария к отклонению платежа
-    if (ctx.session?.awaitingRejectCommentFor && ctx.message?.text) {
-      const userId = ctx.session.awaitingRejectCommentFor;
-      const comment = ctx.message.text;
-      await handleRejectWithComment(ctx, userId, comment);
-      ctx.session.awaitingRejectCommentFor = null;
       return;
     }
 
@@ -203,7 +189,7 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectCommentFor)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice)) {
     return next();
   }
 
@@ -235,50 +221,7 @@ bot.on('photo', handlePhoto);
 
 // Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
-
-// Новый функционал отклонения платежа
-bot.action(/reject_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-  const userId = ctx.match[1];
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [
-        { text: '❌ Подтвердить отклонение', callback_data: `reject_confirm_${userId}` },
-        { text: '💬 Отклонить с комментарием', callback_data: `reject_comment_${userId}` }
-      ],
-      [
-        { text: '↩️ Отменить отмену платежа', callback_data: `reject_cancel_${userId}` }
-      ]
-    ]
-  });
-  await ctx.answerCbQuery();
-});
-
-// Подтвердить отклонение без комментария
-bot.action(/reject_confirm_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-  const userId = ctx.match[1];
-  await handleReject(ctx, userId);
-  await ctx.answerCbQuery();
-});
-
-// Отклонить с комментарием
-bot.action(/reject_comment_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-  const userId = ctx.match[1];
-  ctx.session.awaitingRejectCommentFor = userId;
-  await ctx.reply('✍️ Введите причину отклонения платежа для пользователя:');
-  await ctx.answerCbQuery();
-});
-
-// Отменить отмену платежа
-bot.action(/reject_cancel_(\d+)/, async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
-  const userId = ctx.match[1];
-  await cancelReject(ctx, userId);
-  await ctx.answerCbQuery('Отклонение отменено');
-});
-
+bot.action(/reject_(\d+)/, handleReject);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
