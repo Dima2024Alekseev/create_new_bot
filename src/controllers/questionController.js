@@ -94,7 +94,7 @@ exports.listQuestions = async (ctx) => {
                 Markup.button.callback(`➡️ Ответить на вопрос от ${name}`, `answer_${questionId}`)
             );
         }
-        
+
         await ctx.reply(message, {
             parse_mode: 'Markdown',
             reply_markup: Markup.inlineKeyboard(keyboardButtons, { columns: 1 }).reply_markup

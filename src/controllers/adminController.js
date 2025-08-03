@@ -17,7 +17,7 @@ exports.checkPayments = async (ctx) => {
     try {
         // Показываем первую страницу
         await showPaymentsPage(ctx, 1);
-        
+
         if (ctx.callbackQuery) {
             await ctx.answerCbQuery();
         }
@@ -36,26 +36,26 @@ exports.checkPayments = async (ctx) => {
 const showPaymentsPage = async (ctx, page = 1) => {
     const PAYMENTS_PER_PAGE = 1; // Один платеж на страницу
     const skip = (page - 1) * PAYMENTS_PER_PAGE;
-    
+
     try {
         // Получаем общее количество ожидающих платежей
         const totalPayments = await User.countDocuments({ status: 'pending' });
-        
+
         if (totalPayments === 0) {
             return ctx.reply('✅ Нет ожидающих платежей для проверки.');
         }
-        
+
         // Получаем один платеж для текущей страницы
         const user = await User.findOne({ status: 'pending' })
             .sort({ paymentPhotoDate: -1 }) // Сортируем по дате (новые сначала)
             .skip(skip);
-        
+
         if (!user) {
             return ctx.reply('⚠️ Платеж не найден. Возможно, он уже был обработан.');
         }
-        
+
         const totalPages = totalPayments;
-        
+
         // Формируем сообщение с информацией о платеже
         let message = `📸 *Заявка на оплату от пользователя:*\n` +
             `ID: ${user.userId}\n` +
@@ -77,18 +77,18 @@ const showPaymentsPage = async (ctx, page = 1) => {
 
         // Создаем кнопки навигации
         const navigationButtons = [];
-        
+
         if (totalPages > 1) {
             // Кнопка "Предыдущий платеж"
             if (page > 1) {
                 navigationButtons.push({ text: '⬅️ Предыдущий', callback_data: `payments_page_${page - 1}` });
             }
-            
+
             // Кнопка "Следующий платеж"
             if (page < totalPages) {
                 navigationButtons.push({ text: 'Следующий ➡️', callback_data: `payments_page_${page + 1}` });
             }
-            
+
             // Кнопка обновления
             navigationButtons.push({ text: '🔄 Обновить', callback_data: `payments_page_${page}` });
         }
@@ -125,7 +125,7 @@ const showPaymentsPage = async (ctx, page = 1) => {
                 }
             );
         }
-        
+
     } catch (error) {
         console.error('Ошибка при показе страницы платежей:', error);
         await ctx.reply('⚠️ Произошла ошибка при загрузке платежей.');
@@ -139,9 +139,9 @@ exports.handlePaymentsPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-    
+
     const page = parseInt(ctx.match[1]);
-    
+
     try {
         await ctx.answerCbQuery(`Загружаю страницу ${page}...`);
         await showPaymentsPage(ctx, page);
@@ -252,7 +252,7 @@ exports.listUsers = async (ctx) => {
     try {
         // Показываем первую страницу
         await showUsersPage(ctx, 1);
-        
+
         if (ctx.callbackQuery) {
             await ctx.answerCbQuery();
         }
@@ -271,31 +271,31 @@ exports.listUsers = async (ctx) => {
 const showUsersPage = async (ctx, page = 1) => {
     const USERS_PER_PAGE = 10; // Количество пользователей на страницу
     const skip = (page - 1) * USERS_PER_PAGE;
-    
+
     try {
         // Получаем общее количество пользователей
         const totalUsers = await User.countDocuments();
-        
+
         if (totalUsers === 0) {
             return ctx.reply('👥 Пользователей пока нет.');
         }
-        
+
         // Получаем пользователей для текущей страницы
         const users = await User.find({})
             .sort({ createdAt: -1 }) // Сортируем по дате регистрации (новые сначала)
             .skip(skip)
             .limit(USERS_PER_PAGE);
-        
+
         const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
-        
+
         // Формируем сообщение со списком пользователей
         let message = `👥 *Список пользователей*\n\n`;
         message += `📄 Страница ${page} из ${totalPages} (Всего: ${totalUsers})\n\n`;
-        
+
         for (const user of users) {
             const statusEmoji = getStatusEmoji(user.status);
             const subscriptionInfo = getSubscriptionInfo(user);
-            
+
             message += `${statusEmoji} *${user.firstName || user.username || 'Без имени'}*\n`;
             message += `   ID: \`${user.userId}\`\n`;
             if (user.username) {
@@ -305,37 +305,37 @@ const showUsersPage = async (ctx, page = 1) => {
             message += `   ${subscriptionInfo}\n`;
             message += `   Подписок: ${user.subscriptionCount || 0}\n\n`;
         }
-        
+
         // Создаем кнопки навигации
         const navigationButtons = [];
-        
+
         if (totalPages > 1) {
             // Кнопка "Предыдущая страница"
             if (page > 1) {
                 navigationButtons.push({ text: '⬅️ Предыдущая', callback_data: `users_page_${page - 1}` });
             }
-            
+
             // Кнопка "Следующая страница"
             if (page < totalPages) {
                 navigationButtons.push({ text: 'Следующая ➡️', callback_data: `users_page_${page + 1}` });
             }
-            
+
             // Кнопка обновления
             navigationButtons.push({ text: '🔄 Обновить', callback_data: `users_page_${page}` });
         }
-        
+
         const keyboard = [];
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
         keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
-        
+
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
                 inline_keyboard: keyboard
             }
         });
-        
+
     } catch (error) {
         console.error('Ошибка при показе страницы пользователей:', error);
         await ctx.reply('⚠️ Произошла ошибка при загрузке пользователей.');
@@ -349,9 +349,9 @@ exports.handleUsersPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-    
+
     const page = parseInt(ctx.match[1]);
-    
+
     try {
         await ctx.answerCbQuery(`Загружаю страницу ${page}...`);
         await showUsersPage(ctx, page);
@@ -395,7 +395,7 @@ const getSubscriptionInfo = (user) => {
     if (user.status === 'active' && user.expireDate) {
         const now = new Date();
         const expireDate = new Date(user.expireDate);
-        
+
         if (expireDate > now) {
             const daysLeft = Math.ceil((expireDate - now) / (1000 * 60 * 60 * 24));
             return `Истекает: ${formatDate(expireDate)} (${daysLeft} дн.)`;
@@ -422,7 +422,7 @@ exports.listReviews = async (ctx) => {
     try {
         // Показываем первую страницу отзывов
         await showReviewsPage(ctx, 1);
-        
+
         if (ctx.callbackQuery) {
             await ctx.answerCbQuery();
         }
@@ -441,39 +441,39 @@ exports.listReviews = async (ctx) => {
 const showReviewsPage = async (ctx, page = 1) => {
     const REVIEWS_PER_PAGE = 5; // Количество отзывов на страницу
     const skip = (page - 1) * REVIEWS_PER_PAGE;
-    
+
     try {
         // Получаем общее количество отзывов
         const totalReviews = await Review.countDocuments();
-        
+
         if (totalReviews === 0) {
             return ctx.reply('⭐ Отзывов пока нет.');
         }
-        
+
         // Получаем отзывы для текущей страницы
         const reviews = await Review.find({})
             .sort({ createdAt: -1 }) // Сортируем по дате (новые сначала)
             .skip(skip)
             .limit(REVIEWS_PER_PAGE);
-        
+
         const totalPages = Math.ceil(totalReviews / REVIEWS_PER_PAGE);
-        
+
         // Вычисляем средний рейтинг
         const avgRatingResult = await Review.aggregate([
             { $group: { _id: null, avgRating: { $avg: "$rating" } } }
         ]);
         const avgRating = avgRatingResult.length > 0 ? avgRatingResult[0].avgRating.toFixed(1) : '0.0';
-        
+
         // Формируем сообщение с отзывами
         let message = `⭐ *Отзывы о VPN*\n\n`;
         message += `📊 Средний рейтинг: ${avgRating}/5 (${totalReviews} отзывов)\n`;
         message += `📄 Страница ${page} из ${totalPages}\n\n`;
-        
+
         for (const review of reviews) {
             const stars = '⭐'.repeat(review.rating);
             const speedText = getReviewSpeedText(review.vpnSpeed);
             const stabilityText = getReviewStabilityText(review.vpnStability);
-            
+
             message += `${stars} *${review.firstName || review.username || 'Аноним'}*\n`;
             message += `   ID: \`${review.userId}\`\n`;
             message += `   🚀 Скорость: ${speedText}\n`;
@@ -483,37 +483,37 @@ const showReviewsPage = async (ctx, page = 1) => {
             }
             message += `   📅 ${formatDate(review.createdAt, true)}\n\n`;
         }
-        
+
         // Создаем кнопки навигации
         const navigationButtons = [];
-        
+
         if (totalPages > 1) {
             // Кнопка "Предыдущая страница"
             if (page > 1) {
                 navigationButtons.push({ text: '⬅️ Предыдущая', callback_data: `reviews_page_${page - 1}` });
             }
-            
+
             // Кнопка "Следующая страница"
             if (page < totalPages) {
                 navigationButtons.push({ text: 'Следующая ➡️', callback_data: `reviews_page_${page + 1}` });
             }
-            
+
             // Кнопка обновления
             navigationButtons.push({ text: '🔄 Обновить', callback_data: `reviews_page_${page}` });
         }
-        
+
         const keyboard = [];
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
         keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
-        
+
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
                 inline_keyboard: keyboard
             }
         });
-        
+
     } catch (error) {
         console.error('Ошибка при показе страницы отзывов:', error);
         await ctx.reply('⚠️ Произошла ошибка при загрузке отзывов.');
@@ -527,9 +527,9 @@ exports.handleReviewsPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
-    
+
     const page = parseInt(ctx.match[1]);
-    
+
     try {
         await ctx.answerCbQuery(`Загружаю страницу ${page}...`);
         await showReviewsPage(ctx, page);
@@ -629,7 +629,7 @@ exports.startBroadcast = async (ctx) => {
     }
 
     const targetGroup = ctx.match[1];
-    
+
     try {
         // Сохраняем целевую группу в сессии
         ctx.session.broadcastTarget = targetGroup;
@@ -675,7 +675,7 @@ exports.confirmBroadcast = async (ctx, message) => {
     }
 
     const targetGroup = ctx.session.broadcastTarget;
-    
+
     try {
         // Получаем количество пользователей для рассылки
         let filter = {};
@@ -696,7 +696,7 @@ exports.confirmBroadcast = async (ctx, message) => {
         }
 
         const userCount = await User.countDocuments(filter);
-        
+
         if (userCount === 0) {
             delete ctx.session.broadcastTarget;
             delete ctx.session.awaitingBroadcastMessage;
@@ -779,7 +779,7 @@ exports.executeBroadcast = async (ctx) => {
         }
 
         const users = await User.find(filter).select('userId firstName username');
-        
+
         let successCount = 0;
         let errorCount = 0;
         const errors = [];
@@ -789,10 +789,10 @@ exports.executeBroadcast = async (ctx) => {
             try {
                 await ctx.telegram.sendMessage(user.userId, message, { parse_mode: 'Markdown' });
                 successCount++;
-                
+
                 // Задержка между сообщениями (30 сообщений в секунду - лимит Telegram)
                 await new Promise(resolve => setTimeout(resolve, 35));
-                
+
             } catch (error) {
                 errorCount++;
                 errors.push({
@@ -800,7 +800,7 @@ exports.executeBroadcast = async (ctx) => {
                     name: user.firstName || user.username || 'Неизвестный',
                     error: error.message
                 });
-                
+
                 // Если пользователь заблокировал бота, можно пометить его как неактивного
                 if (error.code === 403) {
                     console.log(`Пользователь ${user.userId} заблокировал бота`);
@@ -837,7 +837,7 @@ exports.executeBroadcast = async (ctx) => {
     } catch (error) {
         console.error('Ошибка при выполнении рассылки:', error);
         await ctx.reply('⚠️ Произошла критическая ошибка при выполнении рассылки.');
-        
+
         // Очищаем сессию при ошибке
         delete ctx.session.broadcastTarget;
         delete ctx.session.awaitingBroadcastMessage;

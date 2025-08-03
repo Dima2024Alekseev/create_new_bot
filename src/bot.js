@@ -137,16 +137,16 @@ bot.use(async (ctx, next) => {
     // Обработка сообщения для массовой рассылки
     if (ctx.session?.awaitingBroadcastMessage && ctx.message?.text) {
       const broadcastMessage = ctx.message.text.trim();
-      
+
       // Валидация сообщения
       if (broadcastMessage.length < 1) {
         return ctx.reply('❌ Сообщение не может быть пустым:');
       }
-      
+
       if (broadcastMessage.length > 4000) {
         return ctx.reply('❌ Сообщение слишком длинное. Максимум 4000 символов:');
       }
-      
+
       ctx.session.awaitingBroadcastMessage = false;
       const { confirmBroadcast } = require('./controllers/adminController');
       await confirmBroadcast(ctx, broadcastMessage);
@@ -156,16 +156,16 @@ bot.use(async (ctx, next) => {
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
       const rejectionComment = ctx.message.text.trim();
-      
+
       // Валидация комментария
       if (rejectionComment.length < 5) {
         return ctx.reply('❌ Комментарий слишком короткий. Минимум 5 символов:');
       }
-      
+
       if (rejectionComment.length > 500) {
         return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
       }
-      
+
       await finalizeRejectionWithComment(ctx, rejectionComment);
       return;
     }
@@ -216,12 +216,12 @@ bot.use(async (ctx, next) => {
   // Обработка комментария к отзыву (для всех пользователей)
   if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
     const reviewComment = ctx.message.text.trim();
-    
+
     // Валидация комментария
     if (reviewComment.length > 500) {
       return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
     }
-    
+
     ctx.session.awaitingReviewComment = false;
     await finishReview(ctx, reviewComment);
     return;
@@ -274,7 +274,7 @@ bot.on('text', async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage)) {
     return next();
   }
-  
+
   if (ctx.session?.awaitingReviewComment) {
     return next();
   }

@@ -7,7 +7,7 @@ const { getConfig } = require('../services/configService');
  * @returns {string} Отформатированная строка с реквизитами для оплаты.
  */
 exports.paymentDetails = async (userId, name = '') => {
-  const price = await getConfig('vpn_price', 132); 
+  const price = await getConfig('vpn_price', 132);
   const comment = name
     ? `VPN ${name} ${userId}`
     : `VPN ${userId}`;

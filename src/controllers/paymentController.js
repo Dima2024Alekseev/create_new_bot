@@ -363,18 +363,18 @@ exports.handleCancelRejection = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-    
+
     try {
         // Очищаем сессию если была начата процедура с комментарием
         if (ctx.session.awaitingRejectionCommentFor === userId) {
             delete ctx.session.awaitingRejectionCommentFor;
         }
-        
+
         // Получаем информацию о пользователе для отображения
         const User = require('../models/User');
         const user = await User.findOne({ userId });
         const { escapeMarkdown } = require('../utils/helpers');
-        
+
         let userDisplay = '';
         const safeFirstName = escapeMarkdown(user?.firstName || 'Не указано');
         if (user?.username) {
@@ -385,14 +385,14 @@ exports.handleCancelRejection = async (ctx) => {
         if (!user?.firstName && !user?.username) {
             userDisplay = `Неизвестный пользователь`;
         }
-        
+
         await ctx.answerCbQuery('Возвращено к рассмотрению');
-        
+
         // Если у пользователя есть скриншот, отправляем его заново с исходными кнопками
         if (user && user.paymentPhotoId) {
             // Удаляем текущее сообщение с опциями отклонения
             await ctx.deleteMessage();
-            
+
             // Отправляем исходное сообщение со скриншотом и кнопками
             await ctx.telegram.sendPhoto(
                 ctx.chat.id,
@@ -438,7 +438,7 @@ exports.handleCancelRejection = async (ctx) => {
                 }
             );
         }
-        
+
     } catch (error) {
         console.error(`Ошибка при отмене отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене!');
