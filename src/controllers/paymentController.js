@@ -353,7 +353,7 @@ exports.handleRejectWithComment = async (ctx) => {
 
 /**
  * Обрабатывает отмену отклонения платежа.
- * Возвращает к исходным кнопкам "Принять" и "Отклонить".
+ * Возвращает к исходным кнопкам "Принять" и "Отклонить", сохраняя скриншот.
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handleCancelRejection = async (ctx) => {
@@ -361,18 +361,18 @@ exports.handleCancelRejection = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
     const userId = parseInt(ctx.match[1]);
-
+    
     try {
         // Очищаем сессию если была начата процедура с комментарием
         if (ctx.session.awaitingRejectionCommentFor === userId) {
             delete ctx.session.awaitingRejectionCommentFor;
         }
-
+        
         // Получаем информацию о пользователе для отображения
         const User = require('../models/User');
         const user = await User.findOne({ userId });
         const { escapeMarkdown } = require('../utils/helpers');
-
+        
         let userDisplay = '';
         const safeFirstName = escapeMarkdown(user?.firstName || 'Не указано');
         if (user?.username) {
@@ -383,17 +383,22 @@ exports.handleCancelRejection = async (ctx) => {
         if (!user?.firstName && !user?.username) {
             userDisplay = `Неизвестный пользователь`;
         }
-
+        
         await ctx.answerCbQuery('Возвращено к рассмотрению');
-
-        // Проверяем, есть ли фото в сообщении
-        if (ctx.callbackQuery.message.photo) {
-            // Если это сообщение с фото, редактируем caption и кнопки
-            await ctx.editMessageCaption(
-                `📸 *Заявка на оплату от пользователя:*\n` +
-                `Имя: ${userDisplay}\n` +
-                `ID: ${userId}`,
+        
+        // Если у пользователя есть скриншот, отправляем его заново с исходными кнопками
+        if (user && user.paymentPhotoId) {
+            // Удаляем текущее сообщение с опциями отклонения
+            await ctx.deleteMessage();
+            
+            // Отправляем исходное сообщение со скриншотом и кнопками
+            await ctx.telegram.sendPhoto(
+                ctx.chat.id,
+                user.paymentPhotoId,
                 {
+                    caption: `📸 *Новый платёж от пользователя:*\n` +
+                        `Имя: ${userDisplay}\n` +
+                        `ID: ${userId}`,
                     parse_mode: 'Markdown',
                     reply_markup: {
                         inline_keyboard: [
@@ -409,11 +414,12 @@ exports.handleCancelRejection = async (ctx) => {
                 }
             );
         } else {
-            // Если это текстовое сообщение, редактируем текст
+            // Если нет скриншота, просто редактируем текущее сообщение
             await ctx.editMessageText(
                 `📸 *Заявка на оплату от пользователя:*\n` +
                 `Имя: ${userDisplay}\n` +
-                `ID: ${userId}`,
+                `ID: ${userId}\n\n` +
+                `⚠️ Скриншот не найден в базе данных`,
                 {
                     parse_mode: 'Markdown',
                     reply_markup: {
@@ -430,7 +436,7 @@ exports.handleCancelRejection = async (ctx) => {
                 }
             );
         }
-
+        
     } catch (error) {
         console.error(`Ошибка при отмене отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене!');

@@ -54,7 +54,9 @@ exports.checkPayments = async (ctx) => {
                 );
             }
         }
-        await ctx.answerCbQuery();
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery();
+        }
     } catch (error) {
         console.error('Ошибка при проверке платежей:', error);
         if (ctx.callbackQuery) {
