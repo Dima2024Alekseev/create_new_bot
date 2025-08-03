@@ -36,6 +36,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // НОВОЕ ПОЛЕ: Причина отклонения платежа
+  rejectionReason: {
+    type: String,
+    default: null,
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);

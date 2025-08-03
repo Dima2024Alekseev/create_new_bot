@@ -17,7 +17,15 @@ const {
   cancelSubscriptionAbort
 } = require('./controllers/userController');
 
-const { handlePhoto, handleApprove, handleReject } = require('./controllers/paymentController');
+const {
+  handlePhoto,
+  handleApprove,
+  handleReject,
+  handleRejectSimple,
+  handleRejectWithComment,
+  handleCancelRejection,
+  finalizeRejectionWithComment
+} = require('./controllers/paymentController');
 const { checkPayments, stats, checkAdminMenu } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const { setupReminders } = require('./services/reminderService');
@@ -99,6 +107,23 @@ bot.use(async (ctx, next) => {
       } finally {
         ctx.session.awaitingAnswerVpnIssueFor = null;
       }
+      return;
+    }
+
+    // Обработка комментария к отклонению платежа
+    if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
+      const rejectionComment = ctx.message.text.trim();
+      
+      // Валидация комментария
+      if (rejectionComment.length < 5) {
+        return ctx.reply('❌ Комментарий слишком короткий. Минимум 5 символов:');
+      }
+      
+      if (rejectionComment.length > 500) {
+        return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
+      }
+      
+      await finalizeRejectionWithComment(ctx, rejectionComment);
       return;
     }
 
@@ -189,7 +214,7 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor)) {
     return next();
   }
 
@@ -222,6 +247,9 @@ bot.on('photo', handlePhoto);
 // Кнопки админа
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
+bot.action(/reject_simple_(\d+)/, handleRejectSimple);
+bot.action(/reject_with_comment_(\d+)/, handleRejectWithComment);
+bot.action(/cancel_rejection_(\d+)/, handleCancelRejection);
 bot.action('list_questions', listQuestions);
 bot.action('check_payments_admin', checkPayments);
 bot.action('show_stats_admin', stats);
