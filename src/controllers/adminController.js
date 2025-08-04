@@ -1,10 +1,10 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 const Review = require('../models/Review');
-const { formatDate } = require('../utils/helpers');
+const { formatDate, escapeMarkdown } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
-const { getConfig, setConfig } = require('../services/configService');
+const { getConfig, setConfig, getPaymentDetailsConfig } = require('../services/configService');
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей с пагинацией.
@@ -171,6 +171,8 @@ exports.stats = async (ctx) => {
         const last7DaysUsers = await User.countDocuments({
             createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
         });
+        const { sbp_phone, card_number, payment_comment } = await getPaymentDetailsConfig();
+        const vpn_price = await getConfig('vpn_price', 132);
 
         const latestSubscription = await User.findOne({ status: 'active', expireDate: { $exists: true } })
             .sort({ expireDate: -1 })
@@ -188,12 +190,18 @@ exports.stats = async (ctx) => {
             `❓ Неотвеченных вопросов: *${pendingQuestions}*\n` +
             `🆕 Новых пользователей (7 дней): *${last7DaysUsers}*\n` +
             `🗓 Самая поздняя подписка до: *${latestExpireDate}*\n` +
+            `💰 Текущая цена: ${vpn_price} ₽\n` +
+            `🏦 Реквизиты:\n` +
+            `📱 СБП: \`${sbp_phone}\`\n` +
+            `💳 Карта: \`${card_number}\`\n` +
+            `📝 Комментарий: \`${payment_comment}\`\n` +
             `_Обновлено: ${new Date().toLocaleTimeString('ru-RU')}_`;
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+                    [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }],
+                    [{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]
                 ]
             }
         });
@@ -222,6 +230,7 @@ exports.checkAdminMenu = async (ctx) => {
     }
 
     const currentPrice = await getConfig('vpn_price', 132);
+    const { sbp_phone, card_number, payment_comment } = await getPaymentDetailsConfig();
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
@@ -235,10 +244,19 @@ exports.checkAdminMenu = async (ctx) => {
                 `💰 Изменить цену (Текущая: ${currentPrice} ₽)`,
                 'set_price_admin'
             )
-        ]
+        ],
+        [Markup.button.callback('🏦 Изменить реквизиты', 'set_payment_details_admin')]
     ]);
 
-    await ctx.reply('⚙️ Панель администратора:', keyboard);
+    await ctx.reply(
+        `⚙️ *Панель администратора*\n\n` +
+        `Текущая цена подписки: *${currentPrice} ₽*\n` +
+        `Текущие реквизиты:\n` +
+        `📱 СБП: \`${sbp_phone}\`\n` +
+        `💳 Карта: \`${card_number}\`\n` +
+        `📝 Комментарий: \`${payment_comment}\``,
+        { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
 };
 
 /**
@@ -866,4 +884,43 @@ exports.cancelBroadcast = async (ctx) => {
         console.error('Ошибка при отмене рассылки:', error);
         await ctx.answerCbQuery('⚠️ Произошла ошибка!');
     }
+};
+
+/**
+ * Инициирует процесс изменения реквизитов оплаты
+ */
+exports.setPaymentDetails = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    const { sbp_phone, card_number, payment_comment } = await getPaymentDetailsConfig();
+
+    ctx.session.awaitingPaymentDetails = true;
+    ctx.session.pendingPaymentDetails = {};
+
+    await ctx.reply(
+        `🏦 *Изменение реквизитов оплаты*\n\n` +
+        `Текущие реквизиты:\n` +
+        `📱 СБП: \`${sbp_phone}\`\n` +
+        `💳 Карта: \`${card_number}\`\n` +
+        `📝 Комментарий: \`${payment_comment}\`\n\n` +
+        `Введите новые реквизиты в формате:\n` +
+        `СБП: <номер телефона>\n` +
+        `Карта: <номер карты>\n` +
+        `Комментарий: <шаблон комментария с {name} и {userId}>\n\n` +
+        `Например:\n` +
+        `СБП: +7 (999) 123-45-67\n` +
+        `Карта: 1234 5678 9012 3456\n` +
+        `Комментарий: VPN {name} {userId}\n\n` +
+        `Оставьте поле пустым (напишите "-"), чтобы не изменять его.`,
+        {
+            parse_mode: 'Markdown',
+            reply_markup: Markup.inlineKeyboard([
+                [Markup.button.callback('❌ Отмена', 'cancel_payment_details')]
+            ])
+        }
+    );
+
+    await ctx.answerCbQuery();
 };
