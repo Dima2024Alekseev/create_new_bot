@@ -390,10 +390,28 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
 });
 
 // Кнопки пользователя
-bot.action('check_subscription', checkSubscriptionStatus);
+bot.action('check_subscription', async (ctx) => {
+  await checkSubscriptionStatus(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
 bot.action('ask_question', promptForQuestion);
-bot.action('extend_subscription', extendSubscription);
-bot.action('leave_review', startReview);
+bot.action('extend_subscription', async (ctx) => {
+  await extendSubscription(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
+bot.action('leave_review', async (ctx) => {
+  await startReview(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 bot.action('back_to_user_menu', async (ctx) => {
@@ -402,7 +420,13 @@ bot.action('back_to_user_menu', async (ctx) => {
 });
 
 // Обработчики для отмены подписки
-bot.action('cancel_subscription_confirm', promptCancelSubscription);
+bot.action('cancel_subscription_confirm', async (ctx) => {
+  await promptCancelSubscription(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
 bot.action('cancel_subscription_final', cancelSubscriptionFinal);
 bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
 

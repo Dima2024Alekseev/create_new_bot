@@ -33,8 +33,7 @@ exports.handleStart = async (ctx) => {
                 await user.save();
                 statusText = '❌ *Ваша подписка истекла.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.\n\nЕсли у вас есть вопросы - просто напишите сообщение, и администратор ответит вам.';
                 keyboardButtons.push(
-                    [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }],
-                    [{ text: '🏠 Личный кабинет', callback_data: 'back_to_user_menu' }]
+                    [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
                 );
             } else {
                 const timeLeft = expireDate - now;
@@ -50,27 +49,23 @@ exports.handleStart = async (ctx) => {
                     [{ text: '💰 Продлить подписку', callback_data: 'extend_subscription' }],
                     [{ text: '🗓 Посмотреть срок действия подписки', callback_data: 'check_subscription' }],
                     [{ text: '⭐ Оставить отзыв о VPN', callback_data: 'leave_review' }],
-                    [{ text: '❌ Отменить подписку', callback_data: 'cancel_subscription_confirm' }],
-                    [{ text: '🏠 Личный кабинет', callback_data: 'back_to_user_menu' }]
+                    [{ text: '❌ Отменить подписку', callback_data: 'cancel_subscription_confirm' }]
                 );
             }
         } else if (user.status === 'inactive') {
             statusText = '❌ *Ваша подписка неактивна.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.';
             keyboardButtons.push(
-                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '🏠 Личный кабинет', callback_data: 'back_to_user_menu' }]
+                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
         } else if (user.status === 'pending') {
             statusText = '⏳ *Ваш платёж на проверке.* Пожалуйста, подождите, пока администратор подтвердит его.';
             keyboardButtons.push(
-                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }],
-                [{ text: '🏠 Личный кабинет', callback_data: 'back_to_user_menu' }]
+                [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
             );
         } else if (user.status === 'rejected') {
             statusText = '❌ *Ваш платёж был отклонён.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
             keyboardButtons.push(
-                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }],
-                [{ text: '🏠 Личный кабинет', callback_data: 'back_to_user_menu' }]
+                [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
         }
 
@@ -160,8 +155,7 @@ exports.promptCancelSubscription = async (ctx) => {
             [
                 Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
                 Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
-            ],
-            [Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]
+            ]
         ])
     );
 };
@@ -225,8 +219,7 @@ exports.handleVpnConfigured = async (ctx) => {
         'Отлично! Приятного пользования.✌️\n\n' +
         'Если у вас есть вопросы — просто напишите мне! Нажмите на кнопку ниже, и я помогу 😊',
         Markup.inlineKeyboard([
-            [Markup.button.callback('❓ Задать вопрос', 'ask_question')],
-            [Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]
+            [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
         ])
     );
 
