@@ -1,31 +1,41 @@
 const Config = require('../models/Config');
 
-exports.getConfig = async (key, defaultValue) => {
+// Получение конфигурации (создаёт документ, если его нет)
+exports.getConfig = async () => {
     try {
-        if (!key) {
-            throw new Error('Ключ настройки не может быть пустым');
+        let config = await Config.findOne();
+        if (!config) {
+            config = await Config.create({
+                vpnPrice: 132,
+                paymentPhone: '+7 (995) 431-34-57',
+                paymentCard: '2202 2050 2287 6913',
+                paymentBank: 'Сбербанк'
+            });
         }
-        const config = await Config.findOne({ name: key });
-        return config ? config.value : defaultValue;
+        return config;
     } catch (error) {
-        console.error(`Ошибка при получении настройки '${key}':`, error);
-        return defaultValue;
+        console.error('Ошибка при получении конфигурации:', error);
+        throw error;
     }
 };
 
-exports.setConfig = async (key, value) => {
+// Обновление одного поля конфигурации
+exports.setConfigField = async (field, value) => {
     try {
-        if (!key) {
-            throw new Error('Ключ настройки не может быть пустым');
+        let config = await Config.findOne();
+        if (!config) {
+            config = await Config.create({
+                vpnPrice: 132,
+                paymentPhone: '+7 (995) 431-34-57',
+                paymentCard: '2202 2050 2287 6913',
+                paymentBank: 'Сбербанк'
+            });
         }
-        await Config.findOneAndUpdate(
-            { name: key },
-            { value },
-            { upsert: true, new: true, runValidators: true }
-        );
-        console.log(`Настройка '${key}' успешно обновлена.`);
+        config[field] = value;
+        await config.save();
+        console.log(`Поле '${field}' успешно обновлено: ${value}`);
     } catch (error) {
-        console.error(`Ошибка при обновлении настройки '${key}':`, error);
-        throw error; // Продолжаем выбрасывать ошибку для обработки выше
+        console.error(`Ошибка при обновлении поля '${field}':`, error);
+        throw error;
     }
 };

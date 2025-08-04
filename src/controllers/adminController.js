@@ -4,7 +4,7 @@ const Review = require('../models/Review');
 const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
-const { getConfig, setConfig } = require('../services/configService');
+const { getConfig } = require('../services/configService');
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей с пагинацией.
@@ -214,17 +214,18 @@ exports.stats = async (ctx) => {
 };
 
 /**
- * Отображает главное меню администратора с улучшенной кнопкой изменения цены и реквизитов.
+ * Отображает главное меню администратора с кнопками для изменения цены и каждого реквизита.
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
         return;
     }
 
-    const currentPrice = await getConfig('vpn_price', 132);
-    const phoneNumber = await getConfig('payment_phone', '+7 (995) 431-34-57');
-    const cardNumber = await getConfig('payment_card', '2202 2050 2287 6913');
-    const bankName = await getConfig('payment_bank', 'Сбербанк');
+    const config = await getConfig();
+    const currentPrice = config.vpnPrice;
+    const phoneNumber = config.paymentPhone;
+    const cardNumber = config.paymentCard;
+    const bankName = config.paymentBank;
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
@@ -241,8 +242,20 @@ exports.checkAdminMenu = async (ctx) => {
         ],
         [
             Markup.button.callback(
-                `📱 Изменить реквизиты (Телефон: ${phoneNumber}, Карта: ${cardNumber}, Банк: ${bankName})`,
-                'set_payment_details_admin'
+                `📱 Изменить номер телефона (Текущий: ${phoneNumber})`,
+                'set_payment_phone_admin'
+            )
+        ],
+        [
+            Markup.button.callback(
+                `💳 Изменить номер карты (Текущий: ${cardNumber})`,
+                'set_payment_card_admin'
+            )
+        ],
+        [
+            Markup.button.callback(
+                `🏦 Изменить банк (Текущий: ${bankName})`,
+                'set_payment_bank_admin'
             )
         ]
     ]);

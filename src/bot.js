@@ -1,4 +1,3 @@
-
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
@@ -54,7 +53,7 @@ const {
 } = require('./controllers/reviewController');
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
-const { setConfig, getConfig } = require('./services/configService');
+const { setConfigField, getConfig } = require('./services/configService');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
@@ -67,56 +66,82 @@ bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
 
 // Вспомогательная функция для изменения цены
 async function finalizePriceChange(ctx, newPrice) {
-  const oldPrice = await getConfig('vpn_price', 132);
-  await setConfig('vpn_price', newPrice);
-
-  delete ctx.session.awaitingNewPrice;
-  delete ctx.session.pendingPriceChange;
-
-  await ctx.reply(`✅ Цена успешно изменена с ${oldPrice} ₽ на ${newPrice} ₽`);
-  await checkAdminMenu(ctx);
-
-  // Логирование
-  console.log(`[PRICE CHANGE] Admin ${ctx.from.id} changed price from ${oldPrice} to ${newPrice} RUB`);
-}
-
-// Вспомогательная функция для изменения реквизитов
-async function finalizePaymentDetailsChange(ctx, newPhone, newCard, newBank) {
   try {
-    const oldPhone = await getConfig('payment_phone', '+7 (995) 431-34-57');
-    const oldCard = await getConfig('payment_card', '2202 2050 2287 6913');
-    const oldBank = await getConfig('payment_bank', 'Сбербанк');
+    const config = await getConfig();
+    const oldPrice = config.vpnPrice;
+    await setConfigField('vpnPrice', newPrice);
 
-    // Валидация перед сохранением
-    if (!newPhone || !newCard || !newBank) {
-      throw new Error('Одно или несколько значений реквизитов отсутствуют');
-    }
+    delete ctx.session.awaitingNewPrice;
+    delete ctx.session.pendingPriceChange;
 
-    await setConfig('payment_phone', newPhone);
-    await setConfig('payment_card', newCard);
-    await setConfig('payment_bank', newBank);
-
-    delete ctx.session.awaitingPaymentPhone;
-    delete ctx.session.awaitingPaymentCard;
-    delete ctx.session.awaitingPaymentBank;
-    delete ctx.session.pendingPaymentDetailsChange;
-
-    await ctx.reply(
-      `✅ Реквизиты успешно изменены:\n` +
-      `Телефон: ${oldPhone} → ${newPhone}\n` +
-      `Карта: ${oldCard} → ${newCard}\n` +
-      `Банк: ${oldBank} → ${newBank}`
-    );
+    await ctx.reply(`✅ Цена успешно изменена с ${oldPrice} ₽ на ${newPrice} ₽`);
     await checkAdminMenu(ctx);
 
-    // Логирование
-    console.log(`[PAYMENT DETAILS CHANGE] Admin ${ctx.from.id} changed payment details: ` +
-      `phone from ${oldPhone} to ${newPhone}, ` +
-      `card from ${oldCard} to ${newCard}, ` +
-      `bank from ${oldBank} to ${newBank}`);
+    console.log(`[PRICE CHANGE] Admin ${ctx.from.id} changed price from ${oldPrice} to ${newPrice} RUB`);
   } catch (error) {
-    console.error('Ошибка при изменении реквизитов:', error);
-    await ctx.reply('⚠️ Произошла ошибка при сохранении реквизитов. Проверьте логи.');
+    console.error('Ошибка при изменении цены:', error);
+    await ctx.reply('⚠️ Произошла ошибка при сохранении новой цены.');
+    await checkAdminMenu(ctx);
+  }
+}
+
+// Вспомогательные функции для изменения реквизитов
+async function finalizePaymentPhoneChange(ctx, newPhone) {
+  try {
+    const config = await getConfig();
+    const oldPhone = config.paymentPhone;
+    await setConfigField('paymentPhone', newPhone);
+
+    delete ctx.session.awaitingPaymentPhone;
+    delete ctx.session.pendingPaymentPhoneChange;
+
+    await ctx.reply(`✅ Номер телефона успешно изменён с ${oldPhone} на ${newPhone}`);
+    await checkAdminMenu(ctx);
+
+    console.log(`[PAYMENT PHONE CHANGE] Admin ${ctx.from.id} changed phone from ${oldPhone} to ${newPhone}`);
+  } catch (error) {
+    console.error('Ошибка при изменении номера телефона:', error);
+    await ctx.reply('⚠️ Произошла ошибка при сохранении номера телефона.');
+    await checkAdminMenu(ctx);
+  }
+}
+
+async function finalizePaymentCardChange(ctx, newCard) {
+  try {
+    const config = await getConfig();
+    const oldCard = config.paymentCard;
+    await setConfigField('paymentCard', newCard);
+
+    delete ctx.session.awaitingPaymentCard;
+    delete ctx.session.pendingPaymentCardChange;
+
+    await ctx.reply(`✅ Номер карты успешно изменён с ${oldCard} на ${newCard}`);
+    await checkAdminMenu(ctx);
+
+    console.log(`[PAYMENT CARD CHANGE] Admin ${ctx.from.id} changed card from ${oldCard} to ${newCard}`);
+  } catch (error) {
+    console.error('Ошибка при изменении номера карты:', error);
+    await ctx.reply('⚠️ Произошла ошибка при сохранении номера карты.');
+    await checkAdminMenu(ctx);
+  }
+}
+
+async function finalizePaymentBankChange(ctx, newBank) {
+  try {
+    const config = await getConfig();
+    const oldBank = config.paymentBank;
+    await setConfigField('paymentBank', newBank);
+
+    delete ctx.session.awaitingPaymentBank;
+    delete ctx.session.pendingPaymentBankChange;
+
+    await ctx.reply(`✅ Банк успешно изменён с ${oldBank} на ${newBank}`);
+    await checkAdminMenu(ctx);
+
+    console.log(`[PAYMENT BANK CHANGE] Admin ${ctx.from.id} changed bank from ${oldBank} to ${newBank}`);
+  } catch (error) {
+    console.error('Ошибка при изменении банка:', error);
+    await ctx.reply('⚠️ Произошла ошибка при сохранении банка.');
     await checkAdminMenu(ctx);
   }
 }
@@ -144,7 +169,7 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для обработки админских ответов, новой цены и реквизитов ---
+// --- Middleware для обработки админских ответов и реквизитов ---
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // Обработка ответа на вопрос пользователя
@@ -211,6 +236,49 @@ bot.use(async (ctx, next) => {
       return;
     }
 
+    // Обработка новой цены
+    if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
+      const newPrice = parseInt(ctx.message.text);
+
+      // Валидация
+      if (isNaN(newPrice)) {
+        return ctx.reply('❌ Цена должна быть числом. Попробуйте еще раз:');
+      }
+
+      if (newPrice < 50) {
+        return ctx.reply('❌ Цена не может быть меньше 50 ₽. Введите корректную сумму:');
+      }
+
+      if (newPrice > 5000) {
+        return ctx.reply('❌ Цена не может превышать 5000 ₽. Введите корректную сумму:');
+      }
+
+      const config = await getConfig();
+      const oldPrice = config.vpnPrice;
+
+      // Если изменение больше чем на 500 руб - запрашиваем подтверждение
+      if (Math.abs(newPrice - oldPrice) > 500) {
+        ctx.session.pendingPriceChange = {
+          newPrice,
+          oldPrice
+        };
+
+        return ctx.reply(
+          `⚠️ Вы изменяете цену более чем на 500 ₽\n` +
+          `Текущая цена: ${oldPrice} ₽\n` +
+          `Новая цена: ${newPrice} ₽\n\n` +
+          `Подтвердите изменение:`,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Подтвердить', 'confirm_price_change')],
+            [Markup.button.callback('❌ Отменить', 'cancel_price_change')]
+          ])
+        );
+      }
+
+      await finalizePriceChange(ctx, newPrice);
+      return;
+    }
+
     // Обработка номера телефона для оплаты
     if (ctx.session?.awaitingPaymentPhone && ctx.message?.text) {
       const newPhone = ctx.message.text.trim();
@@ -221,12 +289,16 @@ bot.use(async (ctx, next) => {
         return ctx.reply('❌ Номер телефона введён некорректно. Попробуйте ещё раз:');
       }
 
-      ctx.session.pendingPaymentDetailsChange = ctx.session.pendingPaymentDetailsChange || {};
-      ctx.session.pendingPaymentDetailsChange.phone = newPhone;
-      ctx.session.awaitingPaymentPhone = false;
-      ctx.session.awaitingPaymentCard = true;
-
-      return ctx.reply('📱 Номер телефона сохранён. Введите номер карты (например, 1234 5678 9012 3456):');
+      ctx.session.pendingPaymentPhoneChange = { newPhone };
+      return ctx.reply(
+        `📋 *Подтверждение изменения номера телефона*\n\n` +
+        `Новый номер: ${newPhone}\n\n` +
+        `Подтвердите изменение:`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Подтвердить', 'confirm_payment_phone_change')],
+          [Markup.button.callback('❌ Отменить', 'cancel_payment_phone_change')]
+        ])
+      );
     }
 
     // Обработка номера карты
@@ -239,11 +311,16 @@ bot.use(async (ctx, next) => {
         return ctx.reply('❌ Номер карты введён некорректно. Введите 16 цифр (например, 1234 5678 9012 3456):');
       }
 
-      ctx.session.pendingPaymentDetailsChange.card = newCard;
-      ctx.session.awaitingPaymentCard = false;
-      ctx.session.awaitingPaymentBank = true;
-
-      return ctx.reply('💳 Номер карты сохранён. Введите название банка:');
+      ctx.session.pendingPaymentCardChange = { newCard };
+      return ctx.reply(
+        `📋 *Подтверждение изменения номера карты*\n\n` +
+        `Новый номер карты: ${newCard}\n\n` +
+        `Подтвердите изменение:`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Подтвердить', 'confirm_payment_card_change')],
+          [Markup.button.callback('❌ Отменить', 'cancel_payment_card_change')]
+        ])
+      );
     }
 
     // Обработка названия банка
@@ -255,20 +332,14 @@ bot.use(async (ctx, next) => {
         return ctx.reply('❌ Название банка должно быть от 2 до 50 символов:');
       }
 
-      ctx.session.pendingPaymentDetailsChange.bank = newBank;
-      ctx.session.awaitingPaymentBank = false;
-
-      const { phone, card, bank } = ctx.session.pendingPaymentDetailsChange;
-
+      ctx.session.pendingPaymentBankChange = { newBank };
       return ctx.reply(
-        `📋 *Подтверждение изменения реквизитов*\n\n` +
-        `Телефон: ${phone}\n` +
-        `Карта: ${card}\n` +
-        `Банк: ${bank}\n\n` +
+        `📋 *Подтверждение изменения банка*\n\n` +
+        `Новый банк: ${newBank}\n\n` +
         `Подтвердите изменение:`,
         Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Подтвердить', 'confirm_payment_details_change')],
-          [Markup.button.callback('❌ Отменить', 'cancel_payment_details_change')]
+          [Markup.button.callback('✅ Подтвердить', 'confirm_payment_bank_change')],
+          [Markup.button.callback('❌ Отменить', 'cancel_payment_bank_change')]
         ])
       );
     }
@@ -392,7 +463,8 @@ bot.action('set_price_admin', async (ctx) => {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
 
-  const currentPrice = await getConfig('vpn_price', 132);
+  const config = await getConfig();
+  const currentPrice = config.vpnPrice;
   ctx.session.awaitingNewPrice = true;
 
   await ctx.reply(
@@ -410,21 +482,68 @@ bot.action('set_price_admin', async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-bot.action('set_payment_details_admin', async (ctx) => {
+bot.action('set_payment_phone_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
 
+  const config = await getConfig();
   ctx.session.awaitingPaymentPhone = true;
-  ctx.session.pendingPaymentDetailsChange = {};
 
   await ctx.reply(
-    `✏️ <b>Изменение реквизитов оплаты</b>\n\n` +
+    `✏️ <b>Изменение номера телефона</b>\n\n` +
+    `Текущий номер: <b>${config.paymentPhone}</b>\n\n` +
     `Введите новый номер телефона для СБП (например, +79954313457):`,
     {
       parse_mode: 'HTML',
       reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Отмена', 'cancel_payment_details_change')]
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_phone_change')]
+      ])
+    }
+  );
+
+  await ctx.answerCbQuery();
+});
+
+bot.action('set_payment_card_admin', async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const config = await getConfig();
+  ctx.session.awaitingPaymentCard = true;
+
+  await ctx.reply(
+    `✏️ <b>Изменение номера карты</b>\n\n` +
+    `Текущий номер: <b>${config.paymentCard}</b>\n\n` +
+    `Введите новый номер карты (например, 1234 5678 9012 3456):`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_card_change')]
+      ])
+    }
+  );
+
+  await ctx.answerCbQuery();
+});
+
+bot.action('set_payment_bank_admin', async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const config = await getConfig();
+  ctx.session.awaitingPaymentBank = true;
+
+  await ctx.reply(
+    `✏️ <b>Изменение банка</b>\n\n` +
+    `Текущий банк: <b>${config.paymentBank}</b>\n\n` +
+    `Введите новое название банка:`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_bank_change')]
       ])
     }
   );
@@ -435,11 +554,8 @@ bot.action('set_payment_details_admin', async (ctx) => {
 bot.action('confirm_price_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
-  const { newPrice, oldPrice } = ctx.session.pendingPriceChange;
+  const { newPrice } = ctx.session.pendingPriceChange;
   await finalizePriceChange(ctx, newPrice);
-
-  // Логирование
-  console.log(`Админ ${ctx.from.id} изменил цену с ${oldPrice} на ${newPrice} руб`);
   await ctx.answerCbQuery();
 });
 
@@ -454,24 +570,59 @@ bot.action('cancel_price_change', async (ctx) => {
   await checkAdminMenu(ctx);
 });
 
-bot.action('confirm_payment_details_change', async (ctx) => {
+bot.action('confirm_payment_phone_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
-  const { phone, card, bank } = ctx.session.pendingPaymentDetailsChange;
-  await finalizePaymentDetailsChange(ctx, phone, card, bank);
-
+  const { newPhone } = ctx.session.pendingPaymentPhoneChange;
+  await finalizePaymentPhoneChange(ctx, newPhone);
   await ctx.answerCbQuery();
 });
 
-bot.action('cancel_payment_details_change', async (ctx) => {
+bot.action('cancel_payment_phone_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
-  delete ctx.session.pendingPaymentDetailsChange;
+  delete ctx.session.pendingPaymentPhoneChange;
   delete ctx.session.awaitingPaymentPhone;
+
+  await ctx.reply('❌ Изменение номера телефона отменено');
+  await ctx.answerCbQuery();
+  await checkAdminMenu(ctx);
+});
+
+bot.action('confirm_payment_card_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  const { newCard } = ctx.session.pendingPaymentCardChange;
+  await finalizePaymentCardChange(ctx, newCard);
+  await ctx.answerCbQuery();
+});
+
+bot.action('cancel_payment_card_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  delete ctx.session.pendingPaymentCardChange;
   delete ctx.session.awaitingPaymentCard;
+
+  await ctx.reply('❌ Изменение номера карты отменено');
+  await ctx.answerCbQuery();
+  await checkAdminMenu(ctx);
+});
+
+bot.action('confirm_payment_bank_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  const { newBank } = ctx.session.pendingPaymentBankChange;
+  await finalizePaymentBankChange(ctx, newBank);
+  await ctx.answerCbQuery();
+});
+
+bot.action('cancel_payment_bank_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  delete ctx.session.pendingPaymentBankChange;
   delete ctx.session.awaitingPaymentBank;
 
-  await ctx.reply('❌ Изменение реквизитов отменено');
+  await ctx.reply('❌ Изменение банка отменено');
   await ctx.answerCbQuery();
   await checkAdminMenu(ctx);
 });
