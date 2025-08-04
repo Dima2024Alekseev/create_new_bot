@@ -79,6 +79,36 @@ async function finalizePriceChange(ctx, newPrice) {
   console.log(`[PRICE CHANGE] Admin ${ctx.from.id} changed price from ${oldPrice} to ${newPrice} RUB`);
 }
 
+// Вспомогательная функция для изменения реквизитов
+async function finalizePaymentDetailsChange(ctx, newPhone, newCard, newBank) {
+  const oldPhone = await getConfig('payment_phone', '+7 (995) 431-34-57');
+  const oldCard = await getConfig('payment_card', '2202 2050 2287 6913');
+  const oldBank = await getConfig('payment_bank', 'Сбербанк');
+
+  await setConfig('payment_phone', newPhone);
+  await setConfig('payment_card', newCard);
+  await setConfig('payment_bank', newBank);
+
+  delete ctx.session.awaitingPaymentPhone;
+  delete ctx.session.awaitingPaymentCard;
+  delete ctx.session.awaitingPaymentBank;
+  delete ctx.session.pendingPaymentDetailsChange;
+
+  await ctx.reply(
+    `✅ Реквизиты успешно изменены:\n` +
+    `Телефон: ${oldPhone} → ${newPhone}\n` +
+    `Карта: ${oldCard} → ${newCard}\n` +
+    `Банк: ${oldBank} → ${newBank}`
+  );
+  await checkAdminMenu(ctx);
+
+  // Логирование
+  console.log(`[PAYMENT DETAILS CHANGE] Admin ${ctx.from.id} changed payment details: ` +
+    `phone from ${oldPhone} to ${newPhone}, ` +
+    `card from ${oldCard} to ${newCard}, ` +
+    `bank from ${oldBank} to ${newBank}`);
+}
+
 connectDB().catch(err => {
   console.error('❌ MongoDB connection failed:', err);
   process.exit(1);
@@ -102,7 +132,7 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для обработки админских ответов и новой цены ---
+// --- Middleware для обработки админских ответов, новой цены и реквизитов ---
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // Обработка ответа на вопрос пользователя
@@ -210,6 +240,68 @@ bot.use(async (ctx, next) => {
       await finalizePriceChange(ctx, newPrice);
       return;
     }
+
+    // Обработка номера телефона для оплаты
+    if (ctx.session?.awaitingPaymentPhone && ctx.message?.text) {
+      const newPhone = ctx.message.text.trim();
+
+      // Валидация номера телефона
+      const phoneRegex = /^\+?\d{1,4}?[-.\s]?\(?\d{1,3}?\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/;
+      if (!phoneRegex.test(newPhone)) {
+        return ctx.reply('❌ Номер телефона введён некорректно. Попробуйте ещё раз:');
+      }
+
+      ctx.session.pendingPaymentDetailsChange = ctx.session.pendingPaymentDetailsChange || {};
+      ctx.session.pendingPaymentDetailsChange.phone = newPhone;
+      ctx.session.awaitingPaymentPhone = false;
+      ctx.session.awaitingPaymentCard = true;
+
+      return ctx.reply('📱 Номер телефона сохранён. Введите номер карты (например, 1234 5678 9012 3456):');
+    }
+
+    // Обработка номера карты
+    if (ctx.session?.awaitingPaymentCard && ctx.message?.text) {
+      const newCard = ctx.message.text.trim();
+
+      // Валидация номера карты
+      const cardRegex = /^\d{4}\s?\d{4}\s?\d{4}\s?\d{4}$/;
+      if (!cardRegex.test(newCard)) {
+        return ctx.reply('❌ Номер карты введён некорректно. Введите 16 цифр (например, 1234 5678 9012 3456):');
+      }
+
+      ctx.session.pendingPaymentDetailsChange.card = newCard;
+      ctx.session.awaitingPaymentCard = false;
+      ctx.session.awaitingPaymentBank = true;
+
+      return ctx.reply('💳 Номер карты сохранён. Введите название банка:');
+    }
+
+    // Обработка названия банка
+    if (ctx.session?.awaitingPaymentBank && ctx.message?.text) {
+      const newBank = ctx.message.text.trim();
+
+      // Валидация названия банка
+      if (newBank.length < 2 || newBank.length > 50) {
+        return ctx.reply('❌ Название банка должно быть от 2 до 50 символов:');
+      }
+
+      const newPhone = ctx.session.pendingPaymentDetailsChange.phone;
+      const newCard = ctx.session.pendingPaymentDetailsChange.card;
+
+      ctx.session.awaitingPaymentBank = false;
+
+      return ctx.reply(
+        `📋 *Подтверждение изменения реквизитов*\n\n` +
+        `Телефон: ${newPhone}\n` +
+        `Карта: ${newCard}\n` +
+        `Банк: ${newBank}\n\n` +
+        `Подтвердите изменение:`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Подтвердить', 'confirm_payment_details_change')],
+          [Markup.button.callback('❌ Отменить', 'cancel_payment_details_change')]
+        ])
+      );
+    }
   }
 
   // Обработка комментария к отзыву (для всех пользователей)
@@ -270,7 +362,7 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage || ctx.session?.awaitingPaymentPhone || ctx.session?.awaitingPaymentCard || ctx.session?.awaitingPaymentBank)) {
     return next();
   }
 
@@ -348,6 +440,28 @@ bot.action('set_price_admin', async (ctx) => {
   await ctx.answerCbQuery();
 });
 
+bot.action('set_payment_details_admin', async (ctx) => {
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  ctx.session.awaitingPaymentPhone = true;
+  ctx.session.pendingPaymentDetailsChange = {};
+
+  await ctx.reply(
+    `✏️ <b>Изменение реквизитов оплаты</b>\n\n` +
+    `Введите новый номер телефона для СБП (например, +79954313457):`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_details_change')]
+      ])
+    }
+  );
+
+  await ctx.answerCbQuery();
+});
+
 bot.action('confirm_price_change', async (ctx) => {
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
@@ -366,6 +480,28 @@ bot.action('cancel_price_change', async (ctx) => {
   delete ctx.session.awaitingNewPrice;
 
   await ctx.reply('❌ Изменение цены отменено');
+  await ctx.answerCbQuery();
+  await checkAdminMenu(ctx);
+});
+
+bot.action('confirm_payment_details_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  const { phone, card, bank } = ctx.session.pendingPaymentDetailsChange;
+  await finalizePaymentDetailsChange(ctx, phone, card, bank);
+
+  await ctx.answerCbQuery();
+});
+
+bot.action('cancel_payment_details_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+
+  delete ctx.session.pendingPaymentDetailsChange;
+  delete ctx.session.awaitingPaymentPhone;
+  delete ctx.session.awaitingPaymentCard;
+  delete ctx.session.awaitingPaymentBank;
+
+  await ctx.reply('❌ Изменение реквизитов отменено');
   await ctx.answerCbQuery();
   await checkAdminMenu(ctx);
 });

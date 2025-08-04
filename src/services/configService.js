@@ -21,5 +21,6 @@ exports.setConfig = async (key, value) => {
         console.log(`Настройка '${key}' успешно обновлена.`);
     } catch (error) {
         console.error(`Ошибка при обновлении настройки '${key}':`, error);
+        throw error; // Добавляем выброс ошибки для обработки в bot.js
     }
 };

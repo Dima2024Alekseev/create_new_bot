@@ -1,4 +1,3 @@
-// src/models/Config.js
 const mongoose = require('mongoose');
 
 const configSchema = new mongoose.Schema({
@@ -8,7 +7,7 @@ const configSchema = new mongoose.Schema({
         unique: true
     },
     value: {
-        type: Number,
+        type: mongoose.Mixed,
         required: true
     }
 });

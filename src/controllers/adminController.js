@@ -214,7 +214,7 @@ exports.stats = async (ctx) => {
 };
 
 /**
- * Отображает главное меню администратора с улучшенной кнопкой изменения цены.
+ * Отображает главное меню администратора с улучшенной кнопкой изменения цены и реквизитов.
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
@@ -222,6 +222,9 @@ exports.checkAdminMenu = async (ctx) => {
     }
 
     const currentPrice = await getConfig('vpn_price', 132);
+    const phoneNumber = await getConfig('payment_phone', '+7 (995) 431-34-57');
+    const cardNumber = await getConfig('payment_card', '2202 2050 2287 6913');
+    const bankName = await getConfig('payment_bank', 'Сбербанк');
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
@@ -234,6 +237,12 @@ exports.checkAdminMenu = async (ctx) => {
             Markup.button.callback(
                 `💰 Изменить цену (Текущая: ${currentPrice} ₽)`,
                 'set_price_admin'
+            )
+        ],
+        [
+            Markup.button.callback(
+                `📱 Изменить реквизиты (Телефон: ${phoneNumber}, Карта: ${cardNumber}, Банк: ${bankName})`,
+                'set_payment_details_admin'
             )
         ]
     ]);
