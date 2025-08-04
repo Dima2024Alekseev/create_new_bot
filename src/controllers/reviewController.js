@@ -27,6 +27,10 @@ exports.startReview = async (ctx) => {
             return ctx.reply('⚠️ Вы уже оставляли отзыв в течение последних 30 дней. Попробуйте позже.');
         }
 
+        // Инициализируем reviewData заново для предотвращения загрязнения данными
+        delete ctx.session.reviewData;
+        ctx.session.reviewData = {};
+
         await ctx.reply(
             '⭐ *Оценка работы VPN*\n\n' +
             'Пожалуйста, оцените качество работы VPN от 1 до 5 звёзд:',
@@ -232,13 +236,13 @@ exports.finishReview = async (ctx, comment = null) => {
             return ctx.reply('⚠️ Данные отзыва не найдены. Попробуйте начать заново.');
         }
 
-        // Проверяем и устанавливаем значения по умолчанию, если они отсутствуют
+        // Проверяем и устанавливаем значения по умолчанию
         if (!reviewData.vpnSpeed) reviewData.vpnSpeed = 'not_specified';
         if (!reviewData.vpnStability) reviewData.vpnStability = 'not_specified';
         if (comment) {
-            reviewData.comment = comment;
+            reviewData.comment = comment.trim(); // Сохраняем только введённый комментарий
         } else {
-            reviewData.comment = null; // Явно устанавливаем null, если комментарий отсутствует
+            delete reviewData.comment; // Удаляем комментарий, если он не введён
         }
 
         // Создаём и сохраняем отзыв
@@ -267,6 +271,8 @@ exports.finishReview = async (ctx, comment = null) => {
 
         if (reviewData.comment) {
             message += `\n💬 Комментарий: "${reviewData.comment}"`;
+        } else {
+            message += '\n💬 Комментарий: Без комментария';
         }
 
         message += `\n\n_Ваш отзыв поможет нам улучшить качество сервиса!_`;
@@ -285,7 +291,7 @@ exports.finishReview = async (ctx, comment = null) => {
             `⭐ Оценка: ${reviewData.rating}/5\n` +
             `🚀 Скорость: ${speedText}\n` +
             `🔒 Стабильность: ${stabilityText}` +
-            (reviewData.comment ? `\n💬 "${reviewData.comment}"` : ''),
+            (reviewData.comment ? `\n💬 "${reviewData.comment}"` : '\n💬 Без комментария'),
             { parse_mode: 'Markdown' }
         );
 
