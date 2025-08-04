@@ -156,6 +156,9 @@ exports.handleStability = async (ctx) => {
     const stability = ctx.match[1];
 
     try {
+        if (!['excellent', 'good', 'average', 'poor'].includes(stability)) {
+            throw new Error('Недопустимое значение стабильности');
+        }
         ctx.session.reviewData.vpnStability = stability;
 
         const speedText = getSpeedText(ctx.session.reviewData.vpnSpeed);
@@ -229,12 +232,25 @@ exports.finishReview = async (ctx, comment = null) => {
             return ctx.reply('⚠️ Данные отзыва не найдены. Попробуйте начать заново.');
         }
 
+        // Проверяем и устанавливаем значения по умолчанию, если они отсутствуют
+        if (!reviewData.vpnSpeed) reviewData.vpnSpeed = 'not_specified';
+        if (!reviewData.vpnStability) reviewData.vpnStability = 'not_specified';
         if (comment) {
             reviewData.comment = comment;
+        } else {
+            reviewData.comment = null; // Явно устанавливаем null, если комментарий отсутствует
         }
 
-        // Сохраняем отзыв в базу данных
-        const review = new Review(reviewData);
+        // Создаём и сохраняем отзыв
+        const review = new Review({
+            userId: reviewData.userId,
+            username: reviewData.username,
+            firstName: reviewData.firstName,
+            rating: reviewData.rating,
+            comment: reviewData.comment,
+            vpnSpeed: reviewData.vpnSpeed,
+            vpnStability: reviewData.vpnStability
+        });
         await review.save();
 
         // Очищаем сессию
@@ -305,6 +321,7 @@ const getSpeedText = (speed) => {
         case 'good': return 'Хорошо';
         case 'average': return 'Средне';
         case 'poor': return 'Плохо';
+        case 'not_specified': return 'Не указано';
         default: return 'Не указано';
     }
 };
@@ -318,6 +335,7 @@ const getStabilityText = (stability) => {
         case 'good': return 'Хорошо';
         case 'average': return 'Средне';
         case 'poor': return 'Плохо';
+        case 'not_specified': return 'Не указано';
         default: return 'Не указано';
     }
 };

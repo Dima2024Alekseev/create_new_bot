@@ -19,11 +19,13 @@ const reviewSchema = new mongoose.Schema({
     },
     vpnSpeed: {
         type: String,
-        enum: ['excellent', 'good', 'average', 'poor'],
+        enum: ['excellent', 'good', 'average', 'poor', 'not_specified'],
+        default: 'not_specified'
     },
     vpnStability: {
         type: String,
-        enum: ['excellent', 'good', 'average', 'poor'],
+        enum: ['excellent', 'good', 'average', 'poor', 'not_specified'],
+        default: 'not_specified'
     },
     createdAt: {
         type: Date,
