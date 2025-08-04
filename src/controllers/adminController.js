@@ -1,10 +1,89 @@
+const { Markup } = require('telegraf');
 const User = require('../models/User');
 const Question = require('../models/Question');
 const Review = require('../models/Review');
-const { formatDate } = require('../utils/helpers');
-const { Markup } = require('telegraf');
-const { checkAdmin } = require('../utils/auth');
-const { getConfig, setConfig } = require('../services/configService');
+const { formatDate, escapeMarkdown } = require('../utils/helpers');
+const { getConfig, getPaymentDetails } = require('../services/configService');
+
+/**
+ * Отображает главное меню администратора с улучшенной кнопкой изменения цены и настроек оплаты.
+ */
+exports.checkAdminMenu = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return;
+    }
+
+    const currentPrice = await getConfig('vpn_price', 132);
+
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
+        [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
+        [Markup.button.callback('👥 Список пользователей', 'list_users_admin')],
+        [Markup.button.callback('⭐ Отзывы о VPN', 'list_reviews_admin')],
+        [Markup.button.callback('📢 Массовая рассылка', 'mass_broadcast_admin')],
+        [Markup.button.callback('❓ Все вопросы', 'list_questions')],
+        [
+            Markup.button.callback(
+                `💰 Изменить цену (Текущая: ${currentPrice} ₽)`,
+                'set_price_admin'
+            )
+        ],
+        [Markup.button.callback('💳 Настройки оплаты', 'payment_settings')]
+    ]);
+
+    await ctx.reply('⚙️ Панель администратора:', keyboard);
+};
+
+/**
+ * Показывает меню настроек оплаты с текущими реквизитами.
+ */
+exports.showPaymentSettings = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    try {
+        const { phone, cardNumber, bankName } = await getPaymentDetails();
+        const price = await getConfig('vpn_price', 132);
+
+        const message = `
+💳 *Настройки оплаты*
+
+Текущие реквизиты:
+📱 *Номер телефона (СБП):* \`${escapeMarkdown(phone)}\`
+💳 *Номер карты:* \`${escapeMarkdown(cardNumber)}\`
+🏦 *Банк:* \`${escapeMarkdown(bankName)}\`
+💰 *Цена подписки:* ${price} ₽
+
+Выберите, что хотите изменить:
+        `;
+
+        const keyboard = Markup.inlineKeyboard([
+            [
+                Markup.button.callback('📱 Изменить номер телефона', 'set_payment_phone'),
+                Markup.button.callback('💳 Изменить номер карты', 'set_payment_card')
+            ],
+            [
+                Markup.button.callback('🏦 Изменить банк', 'set_payment_bank'),
+                Markup.button.callback('💰 Изменить цену', 'set_price_admin')
+            ],
+            [
+                Markup.button.callback('🏠 Главное меню', 'back_to_admin_menu')
+            ]
+        ]);
+
+        await ctx.reply(message, { parse_mode: 'Markdown', ...keyboard });
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery();
+        }
+    } catch (error) {
+        console.error('Ошибка при отображении настроек оплаты:', error);
+        await ctx.reply('⚠️ Произошла ошибка при загрузке настроек оплаты.');
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('⚠️ Ошибка!');
+        }
+    }
+};
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей с пагинацией.
@@ -193,7 +272,8 @@ exports.stats = async (ctx) => {
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }]
+                    [{ text: '🔄 Обновить', callback_data: 'refresh_stats' }],
+                    [{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]
                 ]
             }
         });
@@ -211,34 +291,6 @@ exports.stats = async (ctx) => {
             await ctx.reply('⚠️ Произошла ошибка при получении статистики.');
         }
     }
-};
-
-/**
- * Отображает главное меню администратора с улучшенной кнопкой изменения цены.
- */
-exports.checkAdminMenu = async (ctx) => {
-    if (!checkAdmin(ctx)) {
-        return;
-    }
-
-    const currentPrice = await getConfig('vpn_price', 132);
-
-    const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
-        [Markup.button.callback('📊 Статистика', 'show_stats_admin')],
-        [Markup.button.callback('👥 Список пользователей', 'list_users_admin')],
-        [Markup.button.callback('⭐ Отзывы о VPN', 'list_reviews_admin')],
-        [Markup.button.callback('📢 Массовая рассылка', 'mass_broadcast_admin')],
-        [Markup.button.callback('❓ Все вопросы', 'list_questions')],
-        [
-            Markup.button.callback(
-                `💰 Изменить цену (Текущая: ${currentPrice} ₽)`,
-                'set_price_admin'
-            )
-        ]
-    ]);
-
-    await ctx.reply('⚙️ Панель администратора:', keyboard);
 };
 
 /**

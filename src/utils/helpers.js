@@ -8,6 +8,10 @@ const { getConfig } = require('../services/configService');
  */
 exports.paymentDetails = async (userId, name = '') => {
   const price = await getConfig('vpn_price', 132);
+  const phone = await getConfig('payment_phone', '+7 (995) 431-34-57');
+  const cardNumber = await getConfig('payment_card_number', '2202 2050 2287 6913');
+  const bankName = await getConfig('payment_bank_name', 'Сбербанк');
+
   const comment = name
     ? `VPN ${name} ${userId}`
     : `VPN ${userId}`;
@@ -16,9 +20,9 @@ exports.paymentDetails = async (userId, name = '') => {
       💳 *Реквизиты для оплаты:*
 
       📱 СБП (по номеру):
-      \`+7 (995) 431-34-57\`
+      \`${phone}\`
       💳 Банковская карта:
-      \`2202 2050 2287 6913\` (Сбербанк)
+      \`${cardNumber}\` (${bankName})
       *Обязательно укажите комментарий к платежу:*
       \`${comment}\`
       _Цена: ${price} руб._

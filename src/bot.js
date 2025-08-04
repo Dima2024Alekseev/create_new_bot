@@ -27,6 +27,7 @@ const {
   handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
+
 const {
   checkPayments,
   stats,
@@ -39,8 +40,10 @@ const {
   showBroadcastMenu,
   startBroadcast,
   executeBroadcast,
-  cancelBroadcast
+  cancelBroadcast,
+  showPaymentSettings
 } = require('./controllers/adminController');
+
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const {
   startReview,
@@ -51,9 +54,10 @@ const {
   finishReview,
   cancelReview
 } = require('./controllers/reviewController');
+
 const { setupReminders } = require('./services/reminderService');
 const { checkAdmin } = require('./utils/auth');
-const { setConfig, getConfig } = require('./services/configService');
+const { getConfig, setConfig, getPaymentDetails, setPaymentDetails } = require('./services/configService');
 
 const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
@@ -73,9 +77,8 @@ async function finalizePriceChange(ctx, newPrice) {
   delete ctx.session.pendingPriceChange;
 
   await ctx.reply(`✅ Цена успешно изменена с ${oldPrice} ₽ на ${newPrice} ₽`);
-  await checkAdminMenu(ctx);
+  await showPaymentSettings(ctx);
 
-  // Логирование
   console.log(`[PRICE CHANGE] Admin ${ctx.from.id} changed price from ${oldPrice} to ${newPrice} RUB`);
 }
 
@@ -102,7 +105,7 @@ process.on('uncaughtException', async (err) => {
   process.exit(1);
 });
 
-// --- Middleware для обработки админских ответов и новой цены ---
+// --- Middleware для обработки админских ответов ---
 bot.use(async (ctx, next) => {
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // Обработка ответа на вопрос пользователя
@@ -137,7 +140,6 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingBroadcastMessage && ctx.message?.text) {
       const broadcastMessage = ctx.message.text.trim();
 
-      // Валидация сообщения
       if (broadcastMessage.length < 1) {
         return ctx.reply('❌ Сообщение не может быть пустым:');
       }
@@ -156,7 +158,6 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
       const rejectionComment = ctx.message.text.trim();
 
-      // Валидация комментария
       if (rejectionComment.length < 5) {
         return ctx.reply('❌ Комментарий слишком короткий. Минимум 5 символов:');
       }
@@ -173,7 +174,6 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
       const newPrice = parseInt(ctx.message.text);
 
-      // Валидация
       if (isNaN(newPrice)) {
         return ctx.reply('❌ Цена должна быть числом. Попробуйте еще раз:');
       }
@@ -188,7 +188,6 @@ bot.use(async (ctx, next) => {
 
       const oldPrice = await getConfig('vpn_price', 132);
 
-      // Если изменение больше чем на 500 руб - запрашиваем подтверждение
       if (Math.abs(newPrice - oldPrice) > 500) {
         ctx.session.pendingPriceChange = {
           newPrice,
@@ -210,13 +209,59 @@ bot.use(async (ctx, next) => {
       await finalizePriceChange(ctx, newPrice);
       return;
     }
+
+    // Обработка нового номера телефона
+    if (ctx.session?.awaitingPaymentPhone && ctx.message?.text) {
+      const newPhone = ctx.message.text.trim();
+      
+      // Простая валидация номера телефона
+      if (!newPhone.match(/^\+?[\d\s\-\(\)]{7,}$/)) {
+        return ctx.reply('❌ Неверный формат номера телефона. Попробуйте еще раз:');
+      }
+
+      await setConfig('payment_phone', newPhone);
+      delete ctx.session.awaitingPaymentPhone;
+      await ctx.reply(`✅ Номер телефона успешно изменён на: ${newPhone}`);
+      await showPaymentSettings(ctx);
+      return;
+    }
+
+    // Обработка нового номера карты
+    if (ctx.session?.awaitingPaymentCard && ctx.message?.text) {
+      const newCard = ctx.message.text.trim().replace(/\s/g, '');
+      
+      // Простая валидация номера карты (16 цифр)
+      if (!newCard.match(/^\d{16}$/)) {
+        return ctx.reply('❌ Номер карты должен содержать 16 цифр. Попробуйте еще раз:');
+      }
+
+      await setConfig('payment_card_number', newCard);
+      delete ctx.session.awaitingPaymentCard;
+      await ctx.reply(`✅ Номер карты успешно изменён на: ${newCard}`);
+      await showPaymentSettings(ctx);
+      return;
+    }
+
+    // Обработка нового банка
+    if (ctx.session?.awaitingPaymentBank && ctx.message?.text) {
+      const newBank = ctx.message.text.trim();
+      
+      if (newBank.length < 3) {
+        return ctx.reply('❌ Название банка слишком короткое. Минимум 3 символа:');
+      }
+
+      await setConfig('payment_bank_name', newBank);
+      delete ctx.session.awaitingPaymentBank;
+      await ctx.reply(`✅ Название банка успешно изменено на: ${newBank}`);
+      await showPaymentSettings(ctx);
+      return;
+    }
   }
 
   // Обработка комментария к отзыву (для всех пользователей)
   if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
     const reviewComment = ctx.message.text.trim();
 
-    // Валидация комментария
     if (reviewComment.length > 500) {
       return ctx.reply('❌ Комментарий слишком длинный. Максимум 500 символов:');
     }
@@ -270,7 +315,15 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
-  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage)) {
+  if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && 
+      (ctx.session?.awaitingAnswerFor || 
+       ctx.session?.awaitingAnswerVpnIssueFor || 
+       ctx.session?.awaitingNewPrice || 
+       ctx.session?.awaitingRejectionCommentFor || 
+       ctx.session?.awaitingBroadcastMessage ||
+       ctx.session?.awaitingPaymentPhone ||
+       ctx.session?.awaitingPaymentCard ||
+       ctx.session?.awaitingPaymentBank)) {
     return next();
   }
 
@@ -325,6 +378,8 @@ bot.action(/broadcast_(.+)/, startBroadcast);
 bot.action('execute_broadcast', executeBroadcast);
 bot.action('cancel_broadcast', cancelBroadcast);
 bot.action('back_to_admin_menu', checkAdminMenu);
+bot.action('payment_settings', showPaymentSettings);
+
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
@@ -354,7 +409,6 @@ bot.action('confirm_price_change', async (ctx) => {
   const { newPrice, oldPrice } = ctx.session.pendingPriceChange;
   await finalizePriceChange(ctx, newPrice);
 
-  // Логирование
   console.log(`Админ ${ctx.from.id} изменил цену с ${oldPrice} на ${newPrice} руб`);
   await ctx.answerCbQuery();
 });
@@ -367,7 +421,79 @@ bot.action('cancel_price_change', async (ctx) => {
 
   await ctx.reply('❌ Изменение цены отменено');
   await ctx.answerCbQuery();
-  await checkAdminMenu(ctx);
+  await showPaymentSettings(ctx);
+});
+
+bot.action('set_payment_phone', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  
+  const { phone } = await getPaymentDetails();
+  ctx.session.awaitingPaymentPhone = true;
+  
+  await ctx.reply(
+    `✏️ <b>Изменение номера телефона</b>\n\n` +
+    `Текущий номер: <b>${phone}</b>\n\n` +
+    `Введите новый номер телефона:`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_change')]
+      ])
+    }
+  );
+  await ctx.answerCbQuery();
+});
+
+bot.action('set_payment_card', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  
+  const { cardNumber } = await getPaymentDetails();
+  ctx.session.awaitingPaymentCard = true;
+  
+  await ctx.reply(
+    `✏️ <b>Изменение номера карты</b>\n\n` +
+    `Текущий номер: <b>${cardNumber}</b>\n\n` +
+    `Введите новый номер карты:`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_change')]
+      ])
+    }
+  );
+  await ctx.answerCbQuery();
+});
+
+bot.action('set_payment_bank', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  
+  const { bankName } = await getPaymentDetails();
+  ctx.session.awaitingPaymentBank = true;
+  
+  await ctx.reply(
+    `✏️ <b>Изменение названия банка</b>\n\n` +
+    `Текущий банк: <b>${bankName}</b>\n\n` +
+    `Введите новое название банка:`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_change')]
+      ])
+    }
+  );
+  await ctx.answerCbQuery();
+});
+
+bot.action('cancel_payment_change', async (ctx) => {
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  
+  delete ctx.session.awaitingPaymentPhone;
+  delete ctx.session.awaitingPaymentCard;
+  delete ctx.session.awaitingPaymentBank;
+  
+  await ctx.reply('❌ Изменение отменено');
+  await showPaymentSettings(ctx);
+  await ctx.answerCbQuery();
 });
 
 bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {

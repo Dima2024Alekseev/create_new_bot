@@ -1,6 +1,3 @@
-// src/models/Config.js
-const mongoose = require('mongoose');
-
 const configSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -8,9 +5,7 @@ const configSchema = new mongoose.Schema({
         unique: true
     },
     value: {
-        type: Number,
+        type: mongoose.Schema.Types.Mixed,
         required: true
     }
 });
-
-module.exports = mongoose.model('Config', configSchema);
