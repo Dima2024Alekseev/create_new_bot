@@ -443,71 +443,23 @@ bot.action('set_price_admin', async (ctx) => {
 bot.action('set_payment_details_admin', showPaymentDetailsMenu);
 
 bot.action('set_payment_phone_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-
-  const config = await getConfig();
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   ctx.session.awaitingPaymentPhone = true;
-
-  await ctx.reply(
-    `✏️ <b>Изменение номера телефона</b>\n\n` +
-    `Текущий номер: <b>${config.paymentPhone}</b>\n\n` +
-    `Введите новый номер телефона для СБП (например, +79954313457):`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Отмена', 'cancel_payment_phone_change')]
-      ])
-    }
-  );
-
+  await ctx.reply('Введите новый номер телефона для оплаты:');
   await ctx.answerCbQuery();
 });
 
 bot.action('set_payment_card_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-
-  const config = await getConfig();
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   ctx.session.awaitingPaymentCard = true;
-
-  await ctx.reply(
-    `✏️ <b>Изменение номера карты</b>\n\n` +
-    `Текущий номер: <b>${config.paymentCard}</b>\n\n` +
-    `Введите новый номер карты (например, 1234 5678 9012 3456):`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Отмена', 'cancel_payment_card_change')]
-      ])
-    }
-  );
-
+  await ctx.reply('Введите новый номер карты для оплаты:');
   await ctx.answerCbQuery();
 });
 
 bot.action('set_payment_bank_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
-  }
-
-  const config = await getConfig();
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
   ctx.session.awaitingPaymentBank = true;
-
-  await ctx.reply(
-    `✏️ <b>Изменение банка</b>\n\n` +
-    `Текущий банк: <b>${config.paymentBank}</b>\n\n` +
-    `Введите новое название банка:`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Отмена', 'cancel_payment_bank_change')]
-      ])
-    }
-  );
-
+  await ctx.reply('Введите новое название банка:');
   await ctx.answerCbQuery();
 });
 
