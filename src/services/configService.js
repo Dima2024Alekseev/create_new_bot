@@ -1,8 +1,10 @@
-// src/services/configService.js
 const Config = require('../models/Config');
 
 exports.getConfig = async (key, defaultValue) => {
     try {
+        if (!key) {
+            throw new Error('Ключ настройки не может быть пустым');
+        }
         const config = await Config.findOne({ name: key });
         return config ? config.value : defaultValue;
     } catch (error) {
@@ -13,6 +15,9 @@ exports.getConfig = async (key, defaultValue) => {
 
 exports.setConfig = async (key, value) => {
     try {
+        if (!key) {
+            throw new Error('Ключ настройки не может быть пустым');
+        }
         await Config.findOneAndUpdate(
             { name: key },
             { value },
@@ -21,6 +26,6 @@ exports.setConfig = async (key, value) => {
         console.log(`Настройка '${key}' успешно обновлена.`);
     } catch (error) {
         console.error(`Ошибка при обновлении настройки '${key}':`, error);
-        throw error; // Добавляем выброс ошибки для обработки в bot.js
+        throw error; // Продолжаем выбрасывать ошибку для обработки выше
     }
 };
