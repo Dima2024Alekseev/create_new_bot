@@ -39,8 +39,7 @@ const {
   showBroadcastMenu,
   startBroadcast,
   executeBroadcast,
-  cancelBroadcast,
-  showPaymentDetailsMenu
+  cancelBroadcast
 } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const {
@@ -234,6 +233,49 @@ bot.use(async (ctx, next) => {
       }
 
       await finalizeRejectionWithComment(ctx, rejectionComment);
+      return;
+    }
+
+    // Обработка новой цены
+    if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
+      const newPrice = parseInt(ctx.message.text);
+
+      // Валидация
+      if (isNaN(newPrice)) {
+        return ctx.reply('❌ Цена должна быть числом. Попробуйте еще раз:');
+      }
+
+      if (newPrice < 50) {
+        return ctx.reply('❌ Цена не может быть меньше 50 ₽. Введите корректную сумму:');
+      }
+
+      if (newPrice > 5000) {
+        return ctx.reply('❌ Цена не может превышать 5000 ₽. Введите корректную сумму:');
+      }
+
+      const config = await getConfig();
+      const oldPrice = config.vpnPrice;
+
+      // Если изменение больше чем на 500 руб - запрашиваем подтверждение
+      if (Math.abs(newPrice - oldPrice) > 500) {
+        ctx.session.pendingPriceChange = {
+          newPrice,
+          oldPrice
+        };
+
+        return ctx.reply(
+          `⚠️ Вы изменяете цену более чем на 500 ₽\n` +
+          `Текущая цена: ${oldPrice} ₽\n` +
+          `Новая цена: ${newPrice} ₽\n\n` +
+          `Подтвердите изменение:`,
+          Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Подтвердить', 'confirm_price_change')],
+            [Markup.button.callback('❌ Отменить', 'cancel_price_change')]
+          ])
+        );
+      }
+
+      await finalizePriceChange(ctx, newPrice);
       return;
     }
 
@@ -440,26 +482,72 @@ bot.action('set_price_admin', async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-bot.action('set_payment_details_admin', showPaymentDetailsMenu);
-
 bot.action('set_payment_phone_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const config = await getConfig();
   ctx.session.awaitingPaymentPhone = true;
-  await ctx.reply('Введите новый номер телефона для оплаты:');
+
+  await ctx.reply(
+    `✏️ <b>Изменение номера телефона</b>\n\n` +
+    `Текущий номер: <b>${config.paymentPhone}</b>\n\n` +
+    `Введите новый номер телефона для СБП (например, +79954313457):`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_phone_change')]
+      ])
+    }
+  );
+
   await ctx.answerCbQuery();
 });
 
 bot.action('set_payment_card_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const config = await getConfig();
   ctx.session.awaitingPaymentCard = true;
-  await ctx.reply('Введите новый номер карты для оплаты:');
+
+  await ctx.reply(
+    `✏️ <b>Изменение номера карты</b>\n\n` +
+    `Текущий номер: <b>${config.paymentCard}</b>\n\n` +
+    `Введите новый номер карты (например, 1234 5678 9012 3456):`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_card_change')]
+      ])
+    }
+  );
+
   await ctx.answerCbQuery();
 });
 
 bot.action('set_payment_bank_admin', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) {
+    return ctx.answerCbQuery('🚫 Только для админа');
+  }
+
+  const config = await getConfig();
   ctx.session.awaitingPaymentBank = true;
-  await ctx.reply('Введите новое название банка:');
+
+  await ctx.reply(
+    `✏️ <b>Изменение банка</b>\n\n` +
+    `Текущий банк: <b>${config.paymentBank}</b>\n\n` +
+    `Введите новое название банка:`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'cancel_payment_bank_change')]
+      ])
+    }
+  );
+
   await ctx.answerCbQuery();
 });
 

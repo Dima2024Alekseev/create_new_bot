@@ -214,7 +214,7 @@ exports.stats = async (ctx) => {
 };
 
 /**
- * Отображает главное меню администратора с кнопкой для изменения реквизитов.
+ * Отображает главное меню администратора с кнопками для изменения цены и каждого реквизита.
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
@@ -223,6 +223,9 @@ exports.checkAdminMenu = async (ctx) => {
 
     const config = await getConfig();
     const currentPrice = config.vpnPrice;
+    const phoneNumber = config.paymentPhone;
+    const cardNumber = config.paymentCard;
+    const bankName = config.paymentBank;
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
@@ -237,36 +240,27 @@ exports.checkAdminMenu = async (ctx) => {
                 'set_price_admin'
             )
         ],
-        [Markup.button.callback('💳 Изменить реквизиты', 'set_payment_details_admin')]
+        [
+            Markup.button.callback(
+                `📱 Изменить номер телефона (Текущий: ${phoneNumber})`,
+                'set_payment_phone_admin'
+            )
+        ],
+        [
+            Markup.button.callback(
+                `💳 Изменить номер карты (Текущий: ${cardNumber})`,
+                'set_payment_card_admin'
+            )
+        ],
+        [
+            Markup.button.callback(
+                `🏦 Изменить банк (Текущий: ${bankName})`,
+                'set_payment_bank_admin'
+            )
+        ]
     ]);
 
     await ctx.reply('⚙️ Панель администратора:', keyboard);
-};
-
-/**
- * Показывает подменю для изменения реквизитов
- */
-exports.showPaymentDetailsMenu = async (ctx) => {
-    if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
-    }
-
-    await ctx.reply(
-        '💳 *Меню изменения реквизитов*\n\nВыберите опцию:',
-        {
-            parse_mode: 'Markdown',
-            reply_markup: Markup.inlineKeyboard([
-                [Markup.button.callback('📱 Изменить номер телефона', 'set_payment_phone_admin')],
-                [Markup.button.callback('💳 Изменить номер карты', 'set_payment_card_admin')],
-                [Markup.button.callback('🏦 Изменить банк', 'set_payment_bank_admin')],
-                [Markup.button.callback('🏠 Назад', 'back_to_admin_menu')]
-            ])
-        }
-    );
-
-    if (ctx.callbackQuery) {
-        await ctx.answerCbQuery();
-    }
 };
 
 /**
@@ -356,7 +350,7 @@ const showUsersPage = async (ctx, page = 1) => {
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
-        keyboard.push([{ text: '🏠 Назад', callback_data: 'back_to_admin_menu' }]);
+        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
@@ -523,7 +517,7 @@ const showReviewsPage = async (ctx, page = 1) => {
 
             // Кнопка "Следующая страница"
             if (page < totalPages) {
-                navigationButtons.push({ text: 'Следующий ➡️', callback_data: `reviews_page_${page + 1}` });
+                navigationButtons.push({ text: 'Следующая ➡️', callback_data: `reviews_page_${page + 1}` });
             }
 
             // Кнопка обновления
@@ -534,7 +528,7 @@ const showReviewsPage = async (ctx, page = 1) => {
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
-        keyboard.push([{ text: '🏠 Назад', callback_data: 'back_to_admin_menu' }]);
+        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
@@ -628,7 +622,7 @@ exports.showBroadcastMenu = async (ctx) => {
                             { text: '⏳ Ожидающим проверки', callback_data: 'broadcast_pending' }
                         ],
                         [
-                            { text: '🏠 Назад', callback_data: 'back_to_admin_menu' }
+                            { text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }
                         ]
                     ]
                 }
