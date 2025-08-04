@@ -251,18 +251,8 @@ exports.showPaymentDetailsMenu = async (ctx) => {
         return ctx.answerCbQuery('🚫 Только для админа');
     }
 
-    const config = await getConfig();
-    const phoneNumber = config.paymentPhone;
-    const cardNumber = config.paymentCard;
-    const bankName = config.paymentBank;
-
     await ctx.reply(
-        `💳 *Меню изменения реквизитов*\n\n` +
-        `Текущие реквизиты:\n` +
-        `📱 Номер телефона: ${phoneNumber}\n` +
-        `💳 Номер карты: ${cardNumber}\n` +
-        `🏦 Банк: ${bankName}\n\n` +
-        `Выберите, что хотите изменить:`,
+        '💳 *Меню изменения реквизитов*\n\nВыберите опцию:',
         {
             parse_mode: 'Markdown',
             reply_markup: Markup.inlineKeyboard([
