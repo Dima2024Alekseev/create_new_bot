@@ -4,6 +4,7 @@ const Question = require('../models/Question');
 const Review = require('../models/Review');
 const { formatDate, escapeMarkdown } = require('../utils/helpers');
 const { getConfig, getPaymentDetails } = require('../services/configService');
+const { checkAdmin } = require('../utils/auth');
 
 /**
  * Отображает главное меню администратора с улучшенной кнопкой изменения цены и настроек оплаты.
