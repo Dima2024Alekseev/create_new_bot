@@ -239,10 +239,10 @@ exports.finishReview = async (ctx, comment = null) => {
         // Проверяем и устанавливаем значения по умолчанию
         if (!reviewData.vpnSpeed) reviewData.vpnSpeed = 'not_specified';
         if (!reviewData.vpnStability) reviewData.vpnStability = 'not_specified';
-        if (comment) {
-            reviewData.comment = comment.trim(); // Сохраняем только введённый комментарий
+        if (comment && typeof comment === 'string') {
+            reviewData.comment = comment.trim(); // Проверяем, что comment является строкой
         } else {
-            delete reviewData.comment; // Удаляем комментарий, если он не введён
+            delete reviewData.comment; // Удаляем комментарий, если он не введён или не является строкой
         }
 
         // Создаём и сохраняем отзыв
