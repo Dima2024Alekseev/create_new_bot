@@ -39,7 +39,8 @@ const {
   showBroadcastMenu,
   startBroadcast,
   executeBroadcast,
-  cancelBroadcast
+  cancelBroadcast,
+  showPaymentDetailsMenu
 } = require('./controllers/adminController');
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const {
@@ -233,49 +234,6 @@ bot.use(async (ctx, next) => {
       }
 
       await finalizeRejectionWithComment(ctx, rejectionComment);
-      return;
-    }
-
-    // Обработка новой цены
-    if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
-      const newPrice = parseInt(ctx.message.text);
-
-      // Валидация
-      if (isNaN(newPrice)) {
-        return ctx.reply('❌ Цена должна быть числом. Попробуйте еще раз:');
-      }
-
-      if (newPrice < 50) {
-        return ctx.reply('❌ Цена не может быть меньше 50 ₽. Введите корректную сумму:');
-      }
-
-      if (newPrice > 5000) {
-        return ctx.reply('❌ Цена не может превышать 5000 ₽. Введите корректную сумму:');
-      }
-
-      const config = await getConfig();
-      const oldPrice = config.vpnPrice;
-
-      // Если изменение больше чем на 500 руб - запрашиваем подтверждение
-      if (Math.abs(newPrice - oldPrice) > 500) {
-        ctx.session.pendingPriceChange = {
-          newPrice,
-          oldPrice
-        };
-
-        return ctx.reply(
-          `⚠️ Вы изменяете цену более чем на 500 ₽\n` +
-          `Текущая цена: ${oldPrice} ₽\n` +
-          `Новая цена: ${newPrice} ₽\n\n` +
-          `Подтвердите изменение:`,
-          Markup.inlineKeyboard([
-            [Markup.button.callback('✅ Подтвердить', 'confirm_price_change')],
-            [Markup.button.callback('❌ Отменить', 'cancel_price_change')]
-          ])
-        );
-      }
-
-      await finalizePriceChange(ctx, newPrice);
       return;
     }
 
@@ -481,6 +439,8 @@ bot.action('set_price_admin', async (ctx) => {
 
   await ctx.answerCbQuery();
 });
+
+bot.action('set_payment_details_admin', showPaymentDetailsMenu);
 
 bot.action('set_payment_phone_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {

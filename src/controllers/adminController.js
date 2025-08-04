@@ -214,7 +214,7 @@ exports.stats = async (ctx) => {
 };
 
 /**
- * Отображает главное меню администратора с кнопками для изменения цены и каждого реквизита.
+ * Отображает главное меню администратора с кнопкой для изменения реквизитов.
  */
 exports.checkAdminMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
@@ -223,9 +223,6 @@ exports.checkAdminMenu = async (ctx) => {
 
     const config = await getConfig();
     const currentPrice = config.vpnPrice;
-    const phoneNumber = config.paymentPhone;
-    const cardNumber = config.paymentCard;
-    const bankName = config.paymentBank;
 
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('💳 Проверить платежи', 'check_payments_admin')],
@@ -240,27 +237,46 @@ exports.checkAdminMenu = async (ctx) => {
                 'set_price_admin'
             )
         ],
-        [
-            Markup.button.callback(
-                `📱 Изменить номер телефона (Текущий: ${phoneNumber})`,
-                'set_payment_phone_admin'
-            )
-        ],
-        [
-            Markup.button.callback(
-                `💳 Изменить номер карты (Текущий: ${cardNumber})`,
-                'set_payment_card_admin'
-            )
-        ],
-        [
-            Markup.button.callback(
-                `🏦 Изменить банк (Текущий: ${bankName})`,
-                'set_payment_bank_admin'
-            )
-        ]
+        [Markup.button.callback('💳 Изменить реквизиты', 'set_payment_details_admin')]
     ]);
 
     await ctx.reply('⚙️ Панель администратора:', keyboard);
+};
+
+/**
+ * Показывает подменю для изменения реквизитов
+ */
+exports.showPaymentDetailsMenu = async (ctx) => {
+    if (!checkAdmin(ctx)) {
+        return ctx.answerCbQuery('🚫 Только для админа');
+    }
+
+    const config = await getConfig();
+    const phoneNumber = config.paymentPhone;
+    const cardNumber = config.paymentCard;
+    const bankName = config.paymentBank;
+
+    await ctx.reply(
+        `💳 *Меню изменения реквизитов*\n\n` +
+        `Текущие реквизиты:\n` +
+        `📱 Номер телефона: ${phoneNumber}\n` +
+        `💳 Номер карты: ${cardNumber}\n` +
+        `🏦 Банк: ${bankName}\n\n` +
+        `Выберите, что хотите изменить:`,
+        {
+            parse_mode: 'Markdown',
+            reply_markup: Markup.inlineKeyboard([
+                [Markup.button.callback('📱 Изменить номер телефона', 'set_payment_phone_admin')],
+                [Markup.button.callback('💳 Изменить номер карты', 'set_payment_card_admin')],
+                [Markup.button.callback('🏦 Изменить банк', 'set_payment_bank_admin')],
+                [Markup.button.callback('🏠 Главное меню', 'back_to_admin_menu')]
+            ])
+        }
+    );
+
+    if (ctx.callbackQuery) {
+        await ctx.answerCbQuery();
+    }
 };
 
 /**
