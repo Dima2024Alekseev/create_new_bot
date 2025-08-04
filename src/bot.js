@@ -133,7 +133,6 @@ bot.use(async (ctx, next) => {
       return;
     }
 
-
     // Обработка сообщения для массовой рассылки
     if (ctx.session?.awaitingBroadcastMessage && ctx.message?.text) {
       const broadcastMessage = ctx.message.text.trim();
@@ -397,6 +396,10 @@ bot.action('extend_subscription', extendSubscription);
 bot.action('leave_review', startReview);
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
+bot.action('back_to_user_menu', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleStart(ctx);
+});
 
 // Обработчики для отмены подписки
 bot.action('cancel_subscription_confirm', promptCancelSubscription);
