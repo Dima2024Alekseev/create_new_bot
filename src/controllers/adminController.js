@@ -269,7 +269,7 @@ exports.showPaymentDetailsMenu = async (ctx) => {
                 [Markup.button.callback('📱 Изменить номер телефона', 'set_payment_phone_admin')],
                 [Markup.button.callback('💳 Изменить номер карты', 'set_payment_card_admin')],
                 [Markup.button.callback('🏦 Изменить банк', 'set_payment_bank_admin')],
-                [Markup.button.callback('🏠 Главное меню', 'back_to_admin_menu')]
+                [Markup.button.callback('🏠 Назад', 'back_to_admin_menu')]
             ])
         }
     );
@@ -366,7 +366,7 @@ const showUsersPage = async (ctx, page = 1) => {
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
-        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
+        keyboard.push([{ text: '🏠 Назад', callback_data: 'back_to_admin_menu' }]);
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
@@ -533,7 +533,7 @@ const showReviewsPage = async (ctx, page = 1) => {
 
             // Кнопка "Следующая страница"
             if (page < totalPages) {
-                navigationButtons.push({ text: 'Следующая ➡️', callback_data: `reviews_page_${page + 1}` });
+                navigationButtons.push({ text: 'Следующий ➡️', callback_data: `reviews_page_${page + 1}` });
             }
 
             // Кнопка обновления
@@ -544,7 +544,7 @@ const showReviewsPage = async (ctx, page = 1) => {
         if (navigationButtons.length > 0) {
             keyboard.push(navigationButtons);
         }
-        keyboard.push([{ text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }]);
+        keyboard.push([{ text: '🏠 Назад', callback_data: 'back_to_admin_menu' }]);
 
         await ctx.replyWithMarkdown(message, {
             reply_markup: {
@@ -638,7 +638,7 @@ exports.showBroadcastMenu = async (ctx) => {
                             { text: '⏳ Ожидающим проверки', callback_data: 'broadcast_pending' }
                         ],
                         [
-                            { text: '🏠 Главное меню', callback_data: 'back_to_admin_menu' }
+                            { text: '🏠 Назад', callback_data: 'back_to_admin_menu' }
                         ]
                     ]
                 }
