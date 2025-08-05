@@ -117,7 +117,6 @@ exports.handleApprove = async (ctx) => {
       status: 'active',
       expireDate: newExpireDate,
       paymentPhotoId: null,
-      paymentPhotoDate: null,
       $inc: { subscriptionCount: 1 }
     };
 
@@ -144,7 +143,12 @@ exports.handleApprove = async (ctx) => {
     // Логика для первого платежа
     if (updatedUser.subscriptionCount === 1) {
       try {
-        const { config, uniqueClientName } = await createVpnClient(clientName);
+        const result = await createVpnClient(clientName);
+        console.log('[DEBUG] Результат createVpnClient:', result);
+        if (!result || typeof result.config !== 'string') {
+          throw new Error(`Ожидалась строка конфигурации от createVpnClient, получен: ${JSON.stringify(result)}`);
+        }
+        const { config, uniqueClientName } = result;
         // Обновляем vpnClientName в базе данных с уникальным именем
         await User.findOneAndUpdate(
           { userId },
@@ -160,7 +164,7 @@ exports.handleApprove = async (ctx) => {
         );
         await ctx.telegram.sendDocument(
           userId,
-          { source: Buffer.from(config), filename: `${uniqueClientName}.conf` } // Используем config вместо configContent
+          { source: Buffer.from(config), filename: `${uniqueClientName}.conf` }
         );
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(
@@ -202,6 +206,13 @@ exports.handleApprove = async (ctx) => {
         );
       }
     } else { // Логика для продления
+      try {
+        await enableVpnClient(clientName);
+        console.log(`Клиент ${clientName} был успешно включен.`);
+      } catch (vpnError) {
+        console.error(`Ошибка при включении VPN-клиента для ${clientName}:`, vpnError);
+      }
+
       let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
         `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
       await ctx.telegram.sendMessage(
