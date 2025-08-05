@@ -144,7 +144,7 @@ exports.handleApprove = async (ctx) => {
     // Логика для первого платежа
     if (updatedUser.subscriptionCount === 1) {
       try {
-        const { config: configContent, uniqueClientName } = await createVpnClient(clientName);
+        const { config, uniqueClientName } = await createVpnClient(clientName);
         // Обновляем vpnClientName в базе данных с уникальным именем
         await User.findOneAndUpdate(
           { userId },
@@ -160,7 +160,7 @@ exports.handleApprove = async (ctx) => {
         );
         await ctx.telegram.sendDocument(
           userId,
-          { source: Buffer.from(configContent), filename: `${uniqueClientName}.conf` }
+          { source: Buffer.from(config), filename: `${uniqueClientName}.conf` } // Используем config вместо configContent
         );
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(
