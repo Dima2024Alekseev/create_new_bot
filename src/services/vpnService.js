@@ -65,6 +65,29 @@ async function login() {
     }
 }
 
+async function checkClientNameUnique(clientName) {
+    try {
+        console.log(`[DEBUG] Проверка уникальности имени клиента: ${clientName}`);
+        const response = await api.get('/api/wireguard/client');
+        const clients = response.data;
+        return !clients.some(c => c.name === clientName);
+    } catch (error) {
+        console.error('❌ Ошибка проверки уникальности имени клиента:', error.message);
+        throw error;
+    }
+}
+
+async function generateUniqueClientName(baseName) {
+    let clientName = baseName;
+    let suffix = 1;
+    while (!(await checkClientNameUnique(clientName))) {
+        clientName = `${baseName}_${suffix}`;
+        suffix++;
+        console.log(`[DEBUG] Имя ${baseName} занято, пробуем: ${clientName}`);
+    }
+    return clientName;
+}
+
 async function createClient(clientName) {
     try {
         console.log(`[DEBUG] Создание клиента: ${clientName}`);
@@ -173,10 +196,11 @@ async function enableClient(clientId) {
     }
 }
 
-exports.createVpnClient = async (clientName) => {
+exports.createVpnClient = async (baseName) => {
     try {
-        console.log(`⌛ Начало создания клиента: ${clientName}`);
+        console.log(`⌛ Начало создания клиента: ${baseName}`);
         await login();
+        const clientName = await generateUniqueClientName(baseName);
         await createClient(clientName);
         await new Promise(resolve => setTimeout(resolve, 1000));
         const clientData = await getClientData(clientName);
@@ -187,7 +211,7 @@ exports.createVpnClient = async (clientName) => {
             address: clientData.address
         });
         console.log('✅ Конфигурация успешно сгенерирована');
-        return config;
+        return { config, clientName }; // Возвращаем clientName для сохранения в базе
     } catch (error) {
         console.error('🔥 Критическая ошибка:', {
             message: error.message,

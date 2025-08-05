@@ -102,15 +102,12 @@ exports.handleApprove = async (ctx) => {
     newExpireDate.setHours(23, 59, 59, 999);
 
     let clientName = null;
-    if (user.subscriptionCount === 0) {
-      if (user.username) {
-        clientName = transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '');
-      }
-      if (!clientName) {
-        clientName = `telegram_${userId}`;
-      }
-    } else {
+    if (user && user.subscriptionCount > 0) {
       clientName = user.vpnClientName;
+    } else {
+      // Формируем базовое имя клиента
+      const baseName = user?.username ? transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '') : `telegram_${userId}`;
+      clientName = baseName; // Уникальность будет проверена в createVpnClient
     }
 
     const updateData = {
@@ -121,8 +118,16 @@ exports.handleApprove = async (ctx) => {
       $inc: { subscriptionCount: 1 }
     };
 
-    if (user.subscriptionCount === 0) {
-      updateData.vpnClientName = clientName;
+    let configContent = null;
+    if (user && user.subscriptionCount > 0 && user.vpnClientName) {
+      // Продление подписки
+      await enableVpnClient(user.vpnClientName);
+      console.log(`🔓 VPN включён для ${user.vpnClientName} (ID: ${userId})`);
+    } else {
+      // Первый платёж
+      const { config, clientName: uniqueClientName } = await createVpnClient(clientName);
+      configContent = config;
+      updateData.vpnClientName = uniqueClientName;
       updateData.vpnConfigured = false;
     }
 
@@ -135,16 +140,8 @@ exports.handleApprove = async (ctx) => {
     await ctx.answerCbQuery('✅ Платёж принят');
     await ctx.deleteMessage();
 
-    // Если это продление подписки и клиент уже существует — включаем его
-    if (updatedUser.subscriptionCount > 1 && updatedUser.vpnClientName) {
-      await enableVpnClient(updatedUser.vpnClientName);
-      console.log(`🔓 VPN включён для ${updatedUser.vpnClientName} (ID: ${userId})`);
-    }
-
-    // Логика для первого платежа
     if (updatedUser.subscriptionCount === 1) {
       try {
-        const configContent = await createVpnClient(clientName);
         await ctx.telegram.sendMessage(
           userId,
           `🎉 *Платёж подтверждён!* 🎉\n\n` +
@@ -154,7 +151,7 @@ exports.handleApprove = async (ctx) => {
         );
         await ctx.telegram.sendDocument(
           userId,
-          { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+          { source: Buffer.from(configContent), filename: `${updatedUser.vpnClientName}.conf` }
         );
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(
@@ -177,6 +174,7 @@ exports.handleApprove = async (ctx) => {
           `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
           `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
           `ID: ${userId}\n` +
+          `Клиент: ${updatedUser.vpnClientName}\n` +
           `Срок действия: ${formatDate(newExpireDate, true)}`,
           { parse_mode: 'Markdown' }
         );
@@ -194,7 +192,7 @@ exports.handleApprove = async (ctx) => {
           { parse_mode: 'Markdown' }
         );
       }
-    } else { // Логика для продления
+    } else {
       let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
         `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
       await ctx.telegram.sendMessage(
