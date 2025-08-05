@@ -11,7 +11,6 @@ const path = require('path');
  * @param {object} ctx - Объект контекста Telegraf.
  */
 exports.handlePhoto = async (ctx) => {
-    // ⚠️ НОВОЕ: Проверка, находится ли пользователь в состоянии ожидания скриншота
     if (!ctx.session.awaitingPaymentProof) {
         const userId = ctx.from.id;
         const user = await User.findOne({ userId });
@@ -32,7 +31,6 @@ exports.handlePhoto = async (ctx) => {
     const user = await User.findOne({ userId: id });
 
     if (user && user.status === 'pending') {
-        // ⚠️ Сбросим флаг, чтобы пользователь не мог отправить ещё один скриншот
         ctx.session.awaitingPaymentProof = false;
         return ctx.reply('⏳ Ваш скриншот уже на проверке у администратора. Пожалуйста, подождите.');
     }
@@ -87,12 +85,10 @@ exports.handlePhoto = async (ctx) => {
         );
 
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
-        // ⚠️ НОВОЕ: Сброс флага после успешной отправки скриншота
         ctx.session.awaitingPaymentProof = false;
     } catch (error) {
         console.error('Ошибка при обработке фото/платежа:', error);
         await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
-        // ⚠️ НОВОЕ: Сброс флага при ошибке, чтобы избежать застревания пользователя в состоянии ожидания
         ctx.session.awaitingPaymentProof = false;
     }
 };
@@ -121,29 +117,37 @@ exports.handleApprove = async (ctx) => {
         newExpireDate.setHours(23, 59, 59, 999);
 
         let clientName = null;
-        if (user.subscriptionCount === 0) {
-            if (user.username) {
-                clientName = transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '');
-            }
-            if (!clientName) {
-                clientName = `telegram_${userId}`;
-            }
-        } else {
+        if (user && user.subscriptionCount > 0) {
             clientName = user.vpnClientName;
+        } else {
+            // Формируем базовое имя клиента
+            const baseName = user?.username ? transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '') : `telegram_${userId}`;
+            clientName = baseName; // Уникальность будет проверена в createVpnClient
         }
 
         const updateData = {
             status: 'active',
             expireDate: newExpireDate,
             paymentPhotoId: null,
-            // Сохраняем дату подачи платежа для истории
-            // paymentPhotoDate: null, - убираем эту строку
             $inc: { subscriptionCount: 1 }
         };
 
-        if (user.subscriptionCount === 0) {
-            updateData.vpnClientName = clientName;
+        let configContent = null;
+        if (user && user.subscriptionCount > 0 && user.vpnClientName) {
+            // Продление подписки
+            await enableVpnClient(user.vpnClientName);
+            console.log(`🔓 VPN включён для ${user.vpnClientName} (ID: ${userId})`);
+        } else {
+            // Первый платёж
+            const { config, clientName: uniqueClientName } = await createVpnClient(clientName);
+            configContent = config;
+            updateData.vpnClientName = uniqueClientName;
             updateData.vpnConfigured = false;
+        }
+
+        // Валидация configContent
+        if (typeof configContent !== 'string' && configContent !== null) {
+            throw new Error(`Ожидалась строка конфигурации, получен тип: ${typeof configContent}`);
         }
 
         const updatedUser = await User.findOneAndUpdate(
@@ -155,10 +159,8 @@ exports.handleApprove = async (ctx) => {
         await ctx.answerCbQuery('✅ Платёж принят');
         await ctx.deleteMessage();
 
-        // Логика для первого платежа
         if (updatedUser.subscriptionCount === 1) {
             try {
-                const configContent = await createVpnClient(clientName);
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
@@ -168,7 +170,7 @@ exports.handleApprove = async (ctx) => {
                 );
                 await ctx.telegram.sendDocument(
                     userId,
-                    { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+                    { source: Buffer.from(configContent), filename: `${updatedUser.vpnClientName}.conf` }
                 );
                 const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
                 await ctx.telegram.sendVideo(
@@ -191,6 +193,7 @@ exports.handleApprove = async (ctx) => {
                     `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
                     `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
                     `ID: ${userId}\n` +
+                    `Клиент: ${updatedUser.vpnClientName}\n` +
                     `Срок действия: ${formatDate(newExpireDate, true)}`,
                     { parse_mode: 'Markdown' }
                 );
@@ -208,14 +211,7 @@ exports.handleApprove = async (ctx) => {
                     { parse_mode: 'Markdown' }
                 );
             }
-        } else { // Логика для продления
-            try {
-                await enableVpnClient(clientName);
-                console.log(`Клиент ${clientName} был успешно включен.`);
-            } catch (vpnError) {
-                console.error(`Ошибка при включении VPN-клиента для ${clientName}:`, vpnError);
-            }
-
+        } else {
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
                 `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
@@ -246,7 +242,6 @@ exports.handleReject = async (ctx) => {
     try {
         await ctx.answerCbQuery('Выберите действие');
 
-        // Показываем дополнительные опции для отклонения
         await ctx.reply(
             `❌ *Отклонение платежа пользователя ${userId}*\n\n` +
             `Выберите действие:`,
@@ -288,13 +283,10 @@ exports.handleRejectSimple = async (ctx) => {
             {
                 status: 'rejected',
                 paymentPhotoId: null,
-                // Сохраняем дату подачи платежа для истории
-                // paymentPhotoDate: null, - убираем эту строку
-                rejectionReason: null // Очищаем предыдущую причину
+                rejectionReason: null
             }
         );
 
-        // Отправляем стандартное сообщение об отклонении
         await ctx.telegram.sendMessage(
             userId,
             '❌ *Платёж отклонён*\n\n' +
@@ -328,7 +320,6 @@ exports.handleRejectWithComment = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
 
     try {
-        // Сохраняем ID пользователя для отклонения в сессии
         ctx.session.awaitingRejectionCommentFor = userId;
 
         await ctx.answerCbQuery('Введите комментарий');
@@ -365,16 +356,11 @@ exports.handleCancelRejection = async (ctx) => {
     const userId = parseInt(ctx.match[1]);
 
     try {
-        // Очищаем сессию если была начата процедура с комментарием
         if (ctx.session.awaitingRejectionCommentFor === userId) {
             delete ctx.session.awaitingRejectionCommentFor;
         }
 
-        // Получаем информацию о пользователе для отображения
-        const User = require('../models/User');
         const user = await User.findOne({ userId });
-        const { escapeMarkdown } = require('../utils/helpers');
-
         let userDisplay = '';
         const safeFirstName = escapeMarkdown(user?.firstName || 'Не указано');
         if (user?.username) {
@@ -388,12 +374,9 @@ exports.handleCancelRejection = async (ctx) => {
 
         await ctx.answerCbQuery('Возвращено к рассмотрению');
 
-        // Если у пользователя есть скриншот, отправляем его заново с исходными кнопками
         if (user && user.paymentPhotoId) {
-            // Удаляем текущее сообщение с опциями отклонения
             await ctx.deleteMessage();
 
-            // Отправляем исходное сообщение со скриншотом и кнопками
             await ctx.telegram.sendPhoto(
                 ctx.chat.id,
                 user.paymentPhotoId,
@@ -416,7 +399,6 @@ exports.handleCancelRejection = async (ctx) => {
                 }
             );
         } else {
-            // Если нет скриншота, просто редактируем текущее сообщение
             await ctx.editMessageText(
                 `📸 *Заявка на оплату от пользователя:*\n` +
                 `Имя: ${userDisplay}\n` +
@@ -459,9 +441,7 @@ exports.handleReviewLater = async (ctx) => {
     try {
         await ctx.answerCbQuery('Платёж отложен для рассмотрения');
 
-        // Проверяем, есть ли фото в сообщении
         if (ctx.callbackQuery.message.photo) {
-            // Если это сообщение с фото, редактируем caption
             await ctx.editMessageCaption(
                 `⏰ *Платёж отложен для рассмотрения*\n\n` +
                 `Пользователь: ${userId}\n` +
@@ -469,11 +449,10 @@ exports.handleReviewLater = async (ctx) => {
                 `_Платёж можно найти через команду /check_`,
                 {
                     parse_mode: 'Markdown',
-                    reply_markup: { inline_keyboard: [] } // Убираем кнопки
+                    reply_markup: { inline_keyboard: [] }
                 }
             );
         } else {
-            // Если это текстовое сообщение, редактируем текст
             await ctx.editMessageText(
                 `⏰ *Платёж отложен для рассмотрения*\n\n` +
                 `Пользователь: ${userId}\n` +
@@ -506,13 +485,10 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
             {
                 status: 'rejected',
                 paymentPhotoId: null,
-                // Сохраняем дату подачи платежа для истории
-                // paymentPhotoDate: null, - убираем эту строку
                 rejectionReason: rejectionComment
             }
         );
 
-        // Отправляем пользователю только причину отклонения от администратора
         await ctx.telegram.sendMessage(
             userId,
             `❌ *Платёж отклонён*\n\n` +
@@ -522,7 +498,6 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
 
         await ctx.reply(`✅ Платёж пользователя ${userId} отклонён с комментарием: "${rejectionComment}"`);
 
-        // Очищаем сессию
         delete ctx.session.awaitingRejectionCommentFor;
 
     } catch (error) {
