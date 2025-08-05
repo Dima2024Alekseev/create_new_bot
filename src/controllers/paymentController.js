@@ -4,6 +4,7 @@ const { checkAdmin } = require('../utils/auth');
 const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers');
 const { createVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
+const fs = require('fs').promises; // Добавляем fs для проверки файла
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -120,9 +121,8 @@ exports.handleApprove = async (ctx) => {
         if (user && user.subscriptionCount > 0) {
             clientName = user.vpnClientName;
         } else {
-            // Формируем базовое имя клиента
             const baseName = user?.username ? transliterate(user.username).replace(/[^a-zA-Z0-9_]/g, '') : `telegram_${userId}`;
-            clientName = baseName; // Уникальность будет проверена в createVpnClient
+            clientName = baseName;
         }
 
         const updateData = {
@@ -134,18 +134,18 @@ exports.handleApprove = async (ctx) => {
 
         let configContent = null;
         if (user && user.subscriptionCount > 0 && user.vpnClientName) {
-            // Продление подписки
+            console.log(`[DEBUG] Продление подписки для ${user.vpnClientName} (ID: ${userId})`);
             await enableVpnClient(user.vpnClientName);
             console.log(`🔓 VPN включён для ${user.vpnClientName} (ID: ${userId})`);
         } else {
-            // Первый платёж
+            console.log(`[DEBUG] Создание нового VPN-клиента для ${clientName} (ID: ${userId})`);
             const { config, clientName: uniqueClientName } = await createVpnClient(clientName);
             configContent = config;
             updateData.vpnClientName = uniqueClientName;
             updateData.vpnConfigured = false;
+            console.log(`[DEBUG] Уникальное имя клиента: ${uniqueClientName}, configContent type: ${typeof configContent}`);
         }
 
-        // Валидация configContent
         if (typeof configContent !== 'string' && configContent !== null) {
             throw new Error(`Ожидалась строка конфигурации, получен тип: ${typeof configContent}`);
         }
@@ -161,6 +161,7 @@ exports.handleApprove = async (ctx) => {
 
         if (updatedUser.subscriptionCount === 1) {
             try {
+                console.log(`[DEBUG] Отправка конфигурации пользователю ${userId}`);
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
@@ -168,16 +169,28 @@ exports.handleApprove = async (ctx) => {
                     `📁 Ваш файл конфигурации VPN и видеоинструкция отправлены ниже.`,
                     { parse_mode: 'Markdown' }
                 );
+
                 await ctx.telegram.sendDocument(
                     userId,
                     { source: Buffer.from(configContent), filename: `${updatedUser.vpnClientName}.conf` }
                 );
+
                 const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
-                await ctx.telegram.sendVideo(
-                    userId,
-                    { source: videoPath },
-                    { caption: '🎬 Видеоинструкция по настройке VPN' }
-                );
+                try {
+                    await fs.access(videoPath); // Проверяем существование файла
+                    await ctx.telegram.sendVideo(
+                        userId,
+                        { source: videoPath },
+                        { caption: '🎬 Видеоинструкция по настройке VPN' }
+                    );
+                } catch (fileError) {
+                    console.error(`[ERROR] Не удалось отправить видеоинструкцию для ${userId}:`, fileError);
+                    await ctx.telegram.sendMessage(
+                        userId,
+                        `⚠️ Не удалось отправить видеоинструкцию. Пожалуйста, свяжитесь с администратором для получения инструкции.`
+                    );
+                }
+
                 await ctx.telegram.sendMessage(
                     userId,
                     'Если вы успешно настроили VPN, пожалуйста, нажмите кнопку ниже. Если у вас возникли проблемы:',
@@ -188,6 +201,8 @@ exports.handleApprove = async (ctx) => {
                         ]
                     ])
                 );
+
+                console.log(`[DEBUG] Отправка уведомления админу для ${userId}`);
                 await ctx.telegram.sendMessage(
                     process.env.ADMIN_ID,
                     `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
@@ -198,7 +213,7 @@ exports.handleApprove = async (ctx) => {
                     { parse_mode: 'Markdown' }
                 );
             } catch (vpnError) {
-                console.error(`Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
+                console.error(`[ERROR] Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
                 await ctx.telegram.sendMessage(
                     userId,
                     `⚠️ *Произошла ошибка при автоматической генерации файла конфигурации VPN.*` +
@@ -212,6 +227,7 @@ exports.handleApprove = async (ctx) => {
                 );
             }
         } else {
+            console.log(`[DEBUG] Отправка уведомления о продлении подписки для ${userId}`);
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
                 `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
             await ctx.telegram.sendMessage(
@@ -222,7 +238,7 @@ exports.handleApprove = async (ctx) => {
         }
 
     } catch (error) {
-        console.error(`Ошибка при одобрении платежа для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при одобрении платежа для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при одобрении платежа!');
         await ctx.reply('⚠️ Произошла ошибка при одобрении платежа. Проверьте логи.');
     }
@@ -261,7 +277,7 @@ exports.handleReject = async (ctx) => {
             }
         );
     } catch (error) {
-        console.error(`Ошибка при обработке отклонения для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при обработке отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при обработке отклонения!');
         await ctx.reply('⚠️ Произошла ошибка. Проверьте логи.');
     }
@@ -303,7 +319,7 @@ exports.handleRejectSimple = async (ctx) => {
         await ctx.editMessageText('✅ Платёж отклонён без комментария');
 
     } catch (error) {
-        console.error(`Ошибка при простом отклонении платежа для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при простом отклонении платежа для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отклонении платежа!');
         await ctx.reply('⚠️ Произошла ошибка при отклонении платежа. Проверьте логи.');
     }
@@ -338,7 +354,7 @@ exports.handleRejectWithComment = async (ctx) => {
         );
 
     } catch (error) {
-        console.error(`Ошибка при инициации отклонения с комментарием для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при инициации отклонения с комментарием для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка!');
         await ctx.reply('⚠️ Произошла ошибка. Проверьте логи.');
     }
@@ -422,7 +438,7 @@ exports.handleCancelRejection = async (ctx) => {
         }
 
     } catch (error) {
-        console.error(`Ошибка при отмене отклонения для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при отмене отклонения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене!');
         await ctx.reply('⚠️ Произошла ошибка при отмене отклонения. Проверьте логи.');
     }
@@ -465,7 +481,7 @@ exports.handleReviewLater = async (ctx) => {
         console.log(`[ADMIN] Платёж пользователя ${userId} отложен для рассмотрения администратором ${ctx.from.id}`);
 
     } catch (error) {
-        console.error(`Ошибка при отложении рассмотрения для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при отложении рассмотрения для пользователя ${userId}:`, error);
         await ctx.answerCbQuery('⚠️ Ошибка!');
         await ctx.reply('⚠️ Произошла ошибка при отложении рассмотрения. Проверьте логи.');
     }
@@ -501,7 +517,7 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
         delete ctx.session.awaitingRejectionCommentFor;
 
     } catch (error) {
-        console.error(`Ошибка при финальном отклонении с комментарием для пользователя ${userId}:`, error);
+        console.error(`[ERROR] Ошибка при финальном отклонении с комментарием для пользователя ${userId}:`, error);
         await ctx.reply('⚠️ Произошла ошибка при отклонении платежа с комментарием. Проверьте логи.');
     }
 };
