@@ -89,10 +89,7 @@ async function getClientData(clientName) {
         const response = await api.get('/api/wireguard/client');
         const client = response.data.find(c => c.name === clientName);
 
-        if (!client) {
-            throw new Error(`Клиент "${clientName}" не найден`);
-        }
-        return client;
+        return client || null; // Возвращаем null, если клиент не найден
     } catch (error) {
         console.error('❌ Ошибка поиска клиента:', error.message);
         throw error;
@@ -173,13 +170,33 @@ async function enableClient(clientId) {
     }
 }
 
+async function generateUniqueClientName(baseName) {
+    let clientName = baseName;
+    let suffix = 0;
+
+    while (true) {
+        const existingClient = await getClientData(clientName);
+        if (!existingClient) {
+            return clientName; // Имя уникально, возвращаем его
+        }
+        suffix++;
+        clientName = `${baseName}_${suffix}`; // Добавляем суффикс
+        console.log(`[DEBUG] Имя ${baseName} занято, пробуем ${clientName}`);
+    }
+}
+
 exports.createVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало создания клиента: ${clientName}`);
         await login();
-        await createClient(clientName);
+        
+        // Проверяем и генерируем уникальное имя
+        const uniqueClientName = await generateUniqueClientName(clientName);
+        console.log(`[DEBUG] Уникальное имя клиента: ${uniqueClientName}`);
+
+        await createClient(uniqueClientName);
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const clientData = await getClientData(clientName);
+        const clientData = await getClientData(uniqueClientName);
         const { privateKey, presharedKey } = await getClientConfigFromText(clientData.id);
         const config = generateConfig({
             privateKey,
@@ -187,7 +204,7 @@ exports.createVpnClient = async (clientName) => {
             address: clientData.address
         });
         console.log('✅ Конфигурация успешно сгенерирована');
-        return config;
+        return { config, uniqueClientName }; // Возвращаем конфиг и уникальное имя
     } catch (error) {
         console.error('🔥 Критическая ошибка:', {
             message: error.message,

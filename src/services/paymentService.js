@@ -144,7 +144,13 @@ exports.handleApprove = async (ctx) => {
     // Логика для первого платежа
     if (updatedUser.subscriptionCount === 1) {
       try {
-        const configContent = await createVpnClient(clientName);
+        const { config: configContent, uniqueClientName } = await createVpnClient(clientName);
+        // Обновляем vpnClientName в базе данных с уникальным именем
+        await User.findOneAndUpdate(
+          { userId },
+          { vpnClientName: uniqueClientName },
+          { new: true }
+        );
         await ctx.telegram.sendMessage(
           userId,
           `🎉 *Платёж подтверждён!* 🎉\n\n` +
@@ -154,7 +160,7 @@ exports.handleApprove = async (ctx) => {
         );
         await ctx.telegram.sendDocument(
           userId,
-          { source: Buffer.from(configContent), filename: `${clientName}.conf` }
+          { source: Buffer.from(configContent), filename: `${uniqueClientName}.conf` }
         );
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(
@@ -177,6 +183,7 @@ exports.handleApprove = async (ctx) => {
           `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
           `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
           `ID: ${userId}\n` +
+          `Клиент: ${uniqueClientName}\n` +
           `Срок действия: ${formatDate(newExpireDate, true)}`,
           { parse_mode: 'Markdown' }
         );
