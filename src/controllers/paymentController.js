@@ -4,7 +4,7 @@ const { checkAdmin } = require('../utils/auth');
 const { formatDate, escapeMarkdown, transliterate } = require('../utils/helpers');
 const { createVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
-const fs = require('fs').promises; // Добавляем fs для проверки файла
+const fs = require('fs').promises;
 
 /**
  * Обрабатывает загруженный пользователем скриншот оплаты.
@@ -88,7 +88,7 @@ exports.handlePhoto = async (ctx) => {
         await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
         ctx.session.awaitingPaymentProof = false;
     } catch (error) {
-        console.error('Ошибка при обработке фото/платежа:', error);
+        console.error('[ERROR] Ошибка при обработке фото/платежа:', error);
         await ctx.reply('⚠️ Произошла ошибка при получении вашего скриншота. Пожалуйста, попробуйте позже.');
         ctx.session.awaitingPaymentProof = false;
     }
@@ -165,7 +165,7 @@ exports.handleApprove = async (ctx) => {
                 await ctx.telegram.sendMessage(
                     userId,
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                    `Доступ к VPN активен до *${formatDate(newExpireDate, true)}*\n\n` +
+                    `Доступ к VPN активен до *${escapeMarkdown(formatDate(newExpireDate, true))}*\n\n` +
                     `📁 Ваш файл конфигурации VPN и видеоинструкция отправлены ниже.`,
                     { parse_mode: 'Markdown' }
                 );
@@ -177,7 +177,7 @@ exports.handleApprove = async (ctx) => {
 
                 const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
                 try {
-                    await fs.access(videoPath); // Проверяем существование файла
+                    await fs.access(videoPath);
                     await ctx.telegram.sendVideo(
                         userId,
                         { source: videoPath },
@@ -203,15 +203,29 @@ exports.handleApprove = async (ctx) => {
                 );
 
                 console.log(`[DEBUG] Отправка уведомления админу для ${userId}`);
-                await ctx.telegram.sendMessage(
-                    process.env.ADMIN_ID,
-                    `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
-                    `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
+                const adminMessage = `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
+                    `Имя: ${escapeMarkdown(updatedUser.firstName || updatedUser.username || 'Не указано')}\n` +
                     `ID: ${userId}\n` +
-                    `Клиент: ${updatedUser.vpnClientName}\n` +
-                    `Срок действия: ${formatDate(newExpireDate, true)}`,
-                    { parse_mode: 'Markdown' }
-                );
+                    `Клиент: ${escapeMarkdown(updatedUser.vpnClientName)}\n` +
+                    `Срок действия: ${escapeMarkdown(formatDate(newExpireDate, true))}`;
+                try {
+                    await ctx.telegram.sendMessage(
+                        process.env.ADMIN_ID,
+                        adminMessage,
+                        { parse_mode: 'Markdown' }
+                    );
+                } catch (adminError) {
+                    console.error(`[ERROR] Не удалось отправить уведомление админу для ${userId}:`, adminError);
+                    await ctx.telegram.sendMessage(
+                        process.env.ADMIN_ID,
+                        `🚨 Ошибка отправки уведомления для пользователя ${userId}:\n` +
+                        `Имя: ${updatedUser.firstName || updatedUser.username || 'Не указано'}\n` +
+                        `Клиент: ${updatedUser.vpnClientName}\n` +
+                        `Срок действия: ${formatDate(newExpireDate, true)}\n` +
+                        `Ошибка: ${adminError.message}`,
+                        { parse_mode: 'Markdown' }
+                    );
+                }
             } catch (vpnError) {
                 console.error(`[ERROR] Ошибка при создании/отправке VPN конфига для ${userId}:`, vpnError);
                 await ctx.telegram.sendMessage(
@@ -229,7 +243,7 @@ exports.handleApprove = async (ctx) => {
         } else {
             console.log(`[DEBUG] Отправка уведомления о продлении подписки для ${userId}`);
             let message = `🎉 *Платёж подтверждён!* 🎉\n\n` +
-                `Ваша подписка успешно продлена до *${formatDate(newExpireDate, true)}*.`;
+                `Ваша подписка успешно продлена до *${escapeMarkdown(formatDate(newExpireDate, true))}*.`;
             await ctx.telegram.sendMessage(
                 userId,
                 message,
@@ -508,7 +522,7 @@ exports.finalizeRejectionWithComment = async (ctx, rejectionComment) => {
         await ctx.telegram.sendMessage(
             userId,
             `❌ *Платёж отклонён*\n\n` +
-            `*Причина:* ${rejectionComment}`,
+            `*Причина:* ${escapeMarkdown(rejectionComment)}`,
             { parse_mode: 'Markdown' }
         );
 
