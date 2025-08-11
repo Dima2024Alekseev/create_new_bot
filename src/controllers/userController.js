@@ -6,18 +6,31 @@ const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../servic
 const path = require('path');
 
 exports.handleStart = async (ctx) => {
-    const userId = ctx.from.id;
-    const { first_name, username } = ctx.from;
+    const userId = ctx.from?.id;
+    if (!userId) {
+        console.error('No userId in Telegram context:', ctx);
+        return ctx.reply('⚠️ Ошибка: не удалось определить идентификатор пользователя.');
+    }
+
+    const { first_name, username } = ctx.from || {};
+    const chatId = ctx.chat?.id; // Используем chatId только если доступен
 
     try {
+        const updateData = {
+            userId,
+            firstName: first_name || 'Unknown',
+            username: username || null,
+            lastSeen: new Date()
+        };
+
+        // Добавляем chatId только если он доступен, чтобы избежать null
+        if (chatId) {
+            updateData.chatId = chatId;
+        }
+
         const user = await User.findOneAndUpdate(
             { userId },
-            {
-                userId,
-                firstName: first_name,
-                username,
-                lastSeen: new Date()
-            },
+            { $set: updateData },
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
 
@@ -78,9 +91,12 @@ exports.handleStart = async (ctx) => {
                 }
             }
         );
-
     } catch (error) {
         console.error('Ошибка в handleStart:', error);
+        if (error.code === 11000) {
+            console.error('Duplicate key error for userId or chatId:', userId);
+            return ctx.reply('⚠️ Ошибка: пользователь с таким ID или чат уже существует. Свяжитесь с админом.');
+        }
         await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
     }
 };
@@ -111,7 +127,6 @@ exports.checkSubscriptionStatus = async (ctx) => {
             await user.save();
             await ctx.reply('❌ Ваша подписка истекла. Пожалуйста, продлите её.');
         }
-
     } catch (error) {
         console.error('Ошибка в checkSubscriptionStatus:', error);
         await ctx.reply('⚠️ Произошла ошибка при проверке статуса.');
@@ -175,7 +190,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
 
         if (user.vpnClientName) {
             await revokeVpnClient(user.vpnClientName);
-            console.log(`🔒 VPNmeln для ${user.vpnClientName} (ID: ${userId})`);
+            console.log(`🔒 VPN отключён для ${user.vpnClientName} (ID: ${userId})`);
         }
 
         await User.updateOne(
@@ -196,7 +211,6 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             `VPN-клиент *${user.vpnClientName || 'не указан'}* отключён.`,
             { parse_mode: 'Markdown' }
         );
-
     } catch (error) {
         console.error(`Ошибка при отмене подписки (ID: ${userId}):`, error);
         await ctx.answerCbQuery('⚠️ Ошибка при отмене подписки!');
