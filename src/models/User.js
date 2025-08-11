@@ -6,6 +6,11 @@ const userSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  chatId: {
+    type: Number,
+    default: null,
+    index: true // Добавляем индекс для chatId, но не unique, чтобы избежать конфликтов
+  },
   username: String,
   firstName: String,
   paymentPhotoId: String,
@@ -40,6 +45,10 @@ const userSchema = new mongoose.Schema({
   },
   rejectionReason: {
     type: String,
+    default: null,
+  },
+  lastSeen: {
+    type: Date,
     default: null,
   },
   session: {

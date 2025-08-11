@@ -23,16 +23,24 @@ exports.handleStart = async (ctx) => {
             lastSeen: new Date()
         };
 
-        // Добавляем chatId только если он доступен, чтобы избежать null
         if (chatId) {
             updateData.chatId = chatId;
         }
 
-        const user = await User.findOneAndUpdate(
-            { userId },
-            { $set: updateData },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
+        // Проверяем, существует ли пользователь
+        const existingUser = await User.findOne({ userId });
+        if (existingUser) {
+            // Обновляем существующего пользователя
+            await User.updateOne(
+                { userId },
+                { $set: updateData }
+            );
+        } else {
+            // Создаём нового пользователя
+            await User.create(updateData);
+        }
+
+        const user = await User.findOne({ userId });
 
         let statusText = '';
         let keyboardButtons = [];
