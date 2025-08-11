@@ -1,7 +1,7 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
-const { Mongo } = require('telegraf-session-mongodb');
+const sessionMongo = require('telegraf-session-mongodb'); // Изменён импорт
 const connectDB = require('./config/db');
 const User = require('./models/User');
 
@@ -67,14 +67,11 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
 // Настройка сессий MongoDB
 const setupSession = async () => {
   await connectDB(); // Убедимся, что БД подключена
-  bot.use(session({
-    store: new Mongo({
-      url: process.env.MONGODB_URI,
-      collection: 'users',
-      field: 'session',
-      model: User
-    }),
-    getSessionKey: (ctx) => ctx.from && ctx.from.id ? String(ctx.from.id) : undefined
+  bot.use(sessionMongo({
+    url: process.env.MONGODB_URI,
+    collectionName: 'users',
+    sessionField: 'session',
+    model: User
   }));
 };
 
