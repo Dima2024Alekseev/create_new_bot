@@ -1,9 +1,12 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
-const sessionMongo = require('telegraf-session-mongodb'); // Изменён импорт
+const sessionMongo = require('telegraf-session-mongodb');
 const connectDB = require('./config/db');
 const User = require('./models/User');
+
+// Логирование импорта sessionMongo для диагностики
+console.log('Импорт sessionMongo:', sessionMongo);
 
 const {
   handleStart,
@@ -66,13 +69,38 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
 
 // Настройка сессий MongoDB
 const setupSession = async () => {
-  await connectDB(); // Убедимся, что БД подключена
-  bot.use(sessionMongo({
-    url: process.env.MONGODB_URI,
-    collectionName: 'users',
-    sessionField: 'session',
-    model: User
-  }));
+  console.log('Настройка сессий MongoDB...');
+  try {
+    await connectDB();
+    console.log('MongoDB подключена успешно');
+    
+    // Проверяем, является ли sessionMongo функцией
+    if (typeof sessionMongo === 'function') {
+      console.log('sessionMongo является функцией, используем напрямую');
+      bot.use(sessionMongo({
+        url: process.env.MONGODB_URI,
+        collectionName: 'users',
+        sessionField: 'session',
+        model: User
+      }));
+    } else if (sessionMongo && typeof sessionMongo.session === 'function') {
+      console.log('sessionMongo.session является функцией, используем sessionMongo.session');
+      bot.use(sessionMongo.session({
+        url: process.env.MONGODB_URI,
+        collectionName: 'users',
+        sessionField: 'session',
+        model: User
+      }));
+    } else {
+      console.error('Ошибка: sessionMongo не является функцией и не содержит метод session:', sessionMongo);
+      throw new Error('Неверный API telegraf-session-mongodb');
+    }
+    
+    console.log('Сессии MongoDB настроены успешно');
+  } catch (error) {
+    console.error('Ошибка при настройке сессий MongoDB:', error);
+    throw error;
+  }
 };
 
 // Вспомогательная функция для изменения цены
@@ -177,9 +205,11 @@ process.on('uncaughtException', async (err) => {
 
 // --- Middleware для обработки админских ответов и реквизитов ---
 bot.use(async (ctx, next) => {
+  console.log(`Получен контекст для userId: ${ctx.from?.id}, session:`, ctx.session);
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID)) {
     // Обработка ответа на вопрос пользователя
     if (ctx.session?.awaitingAnswerFor && ctx.message?.text) {
+      console.log(`Обработка ответа на вопрос для ${ctx.session.awaitingAnswerFor}`);
       await handleAnswer(ctx);
       return;
     }
@@ -188,6 +218,7 @@ bot.use(async (ctx, next) => {
     if (ctx.session?.awaitingAnswerVpnIssueFor && ctx.message?.text) {
       const targetUserId = ctx.session.awaitingAnswerVpnIssueFor;
       const adminAnswer = ctx.message.text;
+      console.log(`Отправка ответа по VPN для userId: ${targetUserId}`);
 
       try {
         await ctx.telegram.sendMessage(
@@ -209,6 +240,7 @@ bot.use(async (ctx, next) => {
     // Обработка сообщения для массовой рассылки
     if (ctx.session?.awaitingBroadcastMessage && ctx.message?.text) {
       const broadcastMessage = ctx.message.text.trim();
+      console.log('Получено сообщение для рассылки:', broadcastMessage);
 
       // Валидация сообщения
       if (broadcastMessage.length < 1) {
@@ -228,6 +260,7 @@ bot.use(async (ctx, next) => {
     // Обработка комментария к отклонению платежа
     if (ctx.session?.awaitingRejectionCommentFor && ctx.message?.text) {
       const rejectionComment = ctx.message.text.trim();
+      console.log('Получен комментарий к отклонению платежа:', rejectionComment);
 
       // Валидация комментария
       if (rejectionComment.length < 5) {
@@ -245,6 +278,7 @@ bot.use(async (ctx, next) => {
     // Обработка новой цены
     if (ctx.session?.awaitingNewPrice && ctx.message?.text) {
       const newPrice = parseInt(ctx.message.text);
+      console.log('Получена новая цена:', newPrice);
 
       // Валидация
       if (isNaN(newPrice)) {
@@ -288,6 +322,7 @@ bot.use(async (ctx, next) => {
     // Обработка номера телефона для оплаты
     if (ctx.session?.awaitingPaymentPhone && ctx.message?.text) {
       const newPhone = ctx.message.text.trim();
+      console.log('Получен новый номер телефона:', newPhone);
 
       // Валидация номера телефона
       const phoneRegex = /^\+?\d{1,4}?[-.\s]?\(?\d{1,3}?\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/;
@@ -310,6 +345,7 @@ bot.use(async (ctx, next) => {
     // Обработка номера карты
     if (ctx.session?.awaitingPaymentCard && ctx.message?.text) {
       const newCard = ctx.message.text.trim();
+      console.log('Получен новый номер карты:', newCard);
 
       // Валидация номера карты
       const cardRegex = /^\d{4}\s?\d{4}\s?\d{4}\s?\d{4}$/;
@@ -332,6 +368,7 @@ bot.use(async (ctx, next) => {
     // Обработка названия банка
     if (ctx.session?.awaitingPaymentBank && ctx.message?.text) {
       const newBank = ctx.message.text.trim();
+      console.log('Получено новое название банка:', newBank);
 
       // Валидация названия банка
       if (newBank.length < 2 || newBank.length > 50) {
@@ -354,6 +391,7 @@ bot.use(async (ctx, next) => {
   // Обработка комментария к отзыву (для всех пользователей)
   if (ctx.session?.awaitingReviewComment && ctx.message?.text) {
     const reviewComment = ctx.message.text.trim();
+    console.log('Получен комментарий к отзыву:', reviewComment);
 
     // Валидация комментария
     if (reviewComment.length > 500) {
@@ -370,6 +408,7 @@ bot.use(async (ctx, next) => {
     const userId = ctx.from.id;
     const problemDescription = ctx.message.text;
     const user = await User.findOne({ userId });
+    console.log(`Получена проблема с VPN от userId: ${userId}`);
 
     let userName = user?.firstName || user?.username || 'Без имени';
     if (user?.username) {
@@ -400,6 +439,7 @@ bot.use(async (ctx, next) => {
 
 // --- Обработчики команд ---
 bot.start(async (ctx) => {
+  console.log(`Команда /start от userId: ${ctx.from.id}`);
   if (checkAdmin(ctx)) {
     await checkAdminMenu(ctx);
   } else {
@@ -409,6 +449,7 @@ bot.start(async (ctx) => {
 
 // Обработчик текстовых сообщений
 bot.on('text', async (ctx, next) => {
+  console.log(`Получено текстовое сообщение от userId: ${ctx.from.id}, текст: ${ctx.message.text}`);
   if (ctx.from?.id === parseInt(process.env.ADMIN_ID) && (ctx.session?.awaitingAnswerFor || ctx.session?.awaitingAnswerVpnIssueFor || ctx.session?.awaitingNewPrice || ctx.session?.awaitingRejectionCommentFor || ctx.session?.awaitingBroadcastMessage || ctx.session?.awaitingPaymentPhone || ctx.session?.awaitingPaymentCard || ctx.session?.awaitingPaymentBank)) {
     return next();
   }
@@ -465,6 +506,7 @@ bot.action('execute_broadcast', executeBroadcast);
 bot.action('cancel_broadcast', cancelBroadcast);
 bot.action('back_to_admin_menu', checkAdminMenu);
 bot.action('set_price_admin', async (ctx) => {
+  console.log('Админ активировал set_price_admin, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -489,6 +531,7 @@ bot.action('set_price_admin', async (ctx) => {
 });
 
 bot.action('set_payment_phone_admin', async (ctx) => {
+  console.log('Админ активировал set_payment_phone_admin, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -512,6 +555,7 @@ bot.action('set_payment_phone_admin', async (ctx) => {
 });
 
 bot.action('set_payment_card_admin', async (ctx) => {
+  console.log('Админ активировал set_payment_card_admin, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -535,6 +579,7 @@ bot.action('set_payment_card_admin', async (ctx) => {
 });
 
 bot.action('set_payment_bank_admin', async (ctx) => {
+  console.log('Админ активировал set_payment_bank_admin, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -558,6 +603,7 @@ bot.action('set_payment_bank_admin', async (ctx) => {
 });
 
 bot.action('confirm_price_change', async (ctx) => {
+  console.log('Админ подтвердил изменение цены, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   const { newPrice } = ctx.session.pendingPriceChange;
@@ -566,6 +612,7 @@ bot.action('confirm_price_change', async (ctx) => {
 });
 
 bot.action('cancel_price_change', async (ctx) => {
+  console.log('Админ отменил изменение цены, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   delete ctx.session.pendingPriceChange;
@@ -577,6 +624,7 @@ bot.action('cancel_price_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_phone_change', async (ctx) => {
+  console.log('Админ подтвердил изменение номера телефона, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   const { newPhone } = ctx.session.pendingPaymentPhoneChange;
@@ -585,6 +633,7 @@ bot.action('confirm_payment_phone_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_phone_change', async (ctx) => {
+  console.log('Админ отменил изменение номера телефона, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   delete ctx.session.pendingPaymentPhoneChange;
@@ -596,6 +645,7 @@ bot.action('cancel_payment_phone_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_card_change', async (ctx) => {
+  console.log('Админ подтвердил изменение номера карты, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   const { newCard } = ctx.session.pendingPaymentCardChange;
@@ -604,6 +654,7 @@ bot.action('confirm_payment_card_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_card_change', async (ctx) => {
+  console.log('Админ отменил изменение номера карты, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   delete ctx.session.pendingPaymentCardChange;
@@ -615,6 +666,7 @@ bot.action('cancel_payment_card_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_bank_change', async (ctx) => {
+  console.log('Админ подтвердил изменение банка, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   const { newBank } = ctx.session.pendingPaymentBankChange;
@@ -623,6 +675,7 @@ bot.action('confirm_payment_bank_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_bank_change', async (ctx) => {
+  console.log('Админ отменил изменение банка, userId:', ctx.from.id);
   if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
 
   delete ctx.session.pendingPaymentBankChange;
@@ -634,6 +687,7 @@ bot.action('cancel_payment_bank_change', async (ctx) => {
 });
 
 bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
+  console.log(`Админ активировал ответ на вопрос, questionId: ${ctx.match[1]}, userId: ${ctx.from.id}`);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -643,6 +697,7 @@ bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
 });
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
+  console.log(`Админ активировал ответ на VPN проблему, targetUserId: ${ctx.match[1]}, userId: ${ctx.from.id}`);
   if (!checkAdmin(ctx)) {
     return ctx.answerCbQuery('🚫 Только для админа');
   }
@@ -654,6 +709,7 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
 
 // Кнопки пользователя
 bot.action('check_subscription', async (ctx) => {
+  console.log('Пользователь проверяет подписку, userId:', ctx.from.id);
   await checkSubscriptionStatus(ctx);
   await ctx.reply(
     'Нажмите, чтобы вернуться в главное меню:',
@@ -662,6 +718,7 @@ bot.action('check_subscription', async (ctx) => {
 });
 bot.action('ask_question', promptForQuestion);
 bot.action('extend_subscription', async (ctx) => {
+  console.log('Пользователь продлевает подписку, userId:', ctx.from.id);
   await extendSubscription(ctx);
   await ctx.reply(
     'Нажмите, чтобы вернуться в главное меню:',
@@ -669,6 +726,7 @@ bot.action('extend_subscription', async (ctx) => {
   );
 });
 bot.action('leave_review', async (ctx) => {
+  console.log('Пользователь оставляет отзыв, userId:', ctx.from.id);
   await startReview(ctx);
   await ctx.reply(
     'Нажмите, чтобы вернуться в главное меню:',
@@ -678,12 +736,14 @@ bot.action('leave_review', async (ctx) => {
 bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
 bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
 bot.action('back_to_user_menu', async (ctx) => {
+  console.log('Пользователь возвращается в главное меню, userId:', ctx.from.id);
   await ctx.answerCbQuery();
   await handleStart(ctx);
 });
 
 // Обработчики для отмены подписки
 bot.action('cancel_subscription_confirm', async (ctx) => {
+  console.log('Пользователь подтверждает отмену подписки, userId:', ctx.from.id);
   await promptCancelSubscription(ctx);
   await ctx.reply(
     'Нажмите, чтобы вернуться в главное меню:',
@@ -706,6 +766,7 @@ setupReminders(bot);
 
 // --- Запуск ---
 setupSession().then(() => {
+  console.log('Запуск бота...');
   bot.launch()
     .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
     .catch(err => {
