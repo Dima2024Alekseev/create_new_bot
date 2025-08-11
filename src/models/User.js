@@ -30,20 +30,21 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  // НОВОЕ ПОЛЕ: Флаг успешной настройки VPN
   vpnConfigured: {
     type: Boolean,
-    default: false, // По умолчанию пользователь еще не настроил VPN
+    default: false,
   },
-  // НОВОЕ ПОЛЕ: Имя VPN-клиента для отзыва доступа
   vpnClientName: {
     type: String,
     default: null,
   },
-  // НОВОЕ ПОЛЕ: Причина отклонения платежа
   rejectionReason: {
     type: String,
     default: null,
+  },
+  session: {
+    type: Object,
+    default: {},
   },
 });
 

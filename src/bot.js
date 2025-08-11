@@ -1,7 +1,7 @@
 require('dotenv').config({ path: __dirname + '/../primer.env' });
 
 const { Telegraf, session, Markup } = require('telegraf');
-const LocalSession = require('telegraf-session-local');
+const { Mongo } = require('telegraf-session-mongodb');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 
@@ -27,6 +27,7 @@ const {
   handleReviewLater,
   finalizeRejectionWithComment
 } = require('./controllers/paymentController');
+
 const {
   checkPayments,
   stats,
@@ -41,6 +42,7 @@ const {
   executeBroadcast,
   cancelBroadcast
 } = require('./controllers/adminController');
+
 const { handleQuestion, handleAnswer, listQuestions } = require('./controllers/questionController');
 const {
   startReview,
@@ -62,7 +64,19 @@ const bot = new Telegraf(process.env.BOT_TOKEN, {
   }
 });
 
-bot.use((new LocalSession({ database: 'session_db.json' })).middleware());
+// Настройка сессий MongoDB
+const setupSession = async () => {
+  await connectDB(); // Убедимся, что БД подключена
+  bot.use(session({
+    store: new Mongo({
+      url: process.env.MONGODB_URI,
+      collection: 'users',
+      field: 'session',
+      model: User
+    }),
+    getSessionKey: (ctx) => ctx.from && ctx.from.id ? String(ctx.from.id) : undefined
+  }));
+};
 
 // Вспомогательная функция для изменения цены
 async function finalizePriceChange(ctx, newPrice) {
@@ -145,11 +159,6 @@ async function finalizePaymentBankChange(ctx, newBank) {
     await checkAdminMenu(ctx);
   }
 }
-
-connectDB().catch(err => {
-  console.error('❌ MongoDB connection failed:', err);
-  process.exit(1);
-});
 
 // --- Глобальные обработчики ошибок ---
 process.on('unhandledRejection', (reason, promise) => {
@@ -699,12 +708,14 @@ bot.action('review_cancel', cancelReview);
 setupReminders(bot);
 
 // --- Запуск ---
-bot.launch()
-  .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
-  .catch(err => {
-    console.error('🚨 Ошибка запуска:', err);
-    process.exit(1);
-  });
+setupSession().then(() => {
+  bot.launch()
+    .then(() => console.log('🤖 Бот запущен (Q&A + Payments)'))
+    .catch(err => {
+      console.error('🚨 Ошибка запуска:', err);
+      process.exit(1);
+    });
+});
 
 // Graceful shutdown
 ['SIGINT', 'SIGTERM'].forEach(signal => {
