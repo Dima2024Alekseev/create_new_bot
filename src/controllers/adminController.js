@@ -291,7 +291,7 @@ exports.listUsers = async (ctx) => {
  * Показывает страницу с пользователями
  */
 const showUsersPage = async (ctx, page = 1) => {
-    const USERS_PER_PAGE = 10; // Количество пользователей на страницу
+    const USERS_PER_PAGE = 5; // Уменьшаем до 5 пользователей на страницу для безопасности
     const skip = (page - 1) * USERS_PER_PAGE;
 
     try {
@@ -318,14 +318,27 @@ const showUsersPage = async (ctx, page = 1) => {
             const statusEmoji = getStatusEmoji(user.status);
             const subscriptionInfo = getSubscriptionInfo(user);
 
-            message += `${statusEmoji} *${user.firstName || user.username || 'Без имени'}*\n`;
+            // Экранируем все текстовые поля для MarkdownV2
+            const safeName = escapeMarkdown(user.firstName || user.username || 'Без имени');
+            const safeUsername = user.username ? `@${escapeMarkdown(user.username)}` : '';
+            const safeStatus = escapeMarkdown(getStatusText(user.status));
+            const safeSubscriptionInfo = escapeMarkdown(subscriptionInfo);
+
+            message += `${statusEmoji} *${safeName}*\n`;
             message += `   ID: \`${user.userId}\`\n`;
-            if (user.username) {
-                message += `   Username: @${user.username}\n`;
+            if (safeUsername) {
+                message += `   Username: ${safeUsername}\n`;
             }
-            message += `   Статус: ${getStatusText(user.status)}\n`;
-            message += `   ${subscriptionInfo}\n`;
+            message += `   Статус: ${safeStatus}\n`;
+            message += `   ${safeSubscriptionInfo}\n`;
             message += `   Подписок: ${user.subscriptionCount || 0}\n\n`;
+        }
+
+        // Проверяем длину сообщения
+        console.log(`[DEBUG] Длина сообщения: ${message.length}`);
+        if (message.length > 4000) {
+            console.warn(`[WARNING] Длина сообщения (${message.length}) превышает лимит Telegram (4096 символов)`);
+            return ctx.reply('⚠️ Список слишком длинный. Попробуйте уменьшить количество пользователей на странице.');
         }
 
         // Создаем кнопки навигации
@@ -359,11 +372,13 @@ const showUsersPage = async (ctx, page = 1) => {
         });
 
     } catch (error) {
-        console.error('Ошибка при показе страницы пользователей:', error);
+        console.error('Ошибка при показе страницы пользователей:', {
+            message: error.message,
+            stack: error.stack
+        });
         await ctx.reply('⚠️ Произошла ошибка при загрузке пользователей.');
     }
 };
-
 /**
  * Обрабатывает переход на определенную страницу пользователей
  */
