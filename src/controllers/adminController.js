@@ -291,7 +291,7 @@ exports.listUsers = async (ctx) => {
  * Показывает страницу с пользователями
  */
 const showUsersPage = async (ctx, page = 1) => {
-    const USERS_PER_PAGE = 5; // Уменьшаем до 5 пользователей на страницу для безопасности
+    const USERS_PER_PAGE = 5; // Уменьшаем до 5 пользователей на страницу
     const skip = (page - 1) * USERS_PER_PAGE;
 
     try {
@@ -318,11 +318,11 @@ const showUsersPage = async (ctx, page = 1) => {
             const statusEmoji = getStatusEmoji(user.status);
             const subscriptionInfo = getSubscriptionInfo(user);
 
-            // Экранируем все текстовые поля для MarkdownV2
+            // Экранируем только потенциально проблемные поля
             const safeName = escapeMarkdown(user.firstName || user.username || 'Без имени');
             const safeUsername = user.username ? `@${escapeMarkdown(user.username)}` : '';
             const safeStatus = escapeMarkdown(getStatusText(user.status));
-            const safeSubscriptionInfo = escapeMarkdown(subscriptionInfo);
+            // Не экранируем subscriptionInfo, так как дата не содержит проблемных символов
 
             message += `${statusEmoji} *${safeName}*\n`;
             message += `   ID: \`${user.userId}\`\n`;
@@ -330,7 +330,7 @@ const showUsersPage = async (ctx, page = 1) => {
                 message += `   Username: ${safeUsername}\n`;
             }
             message += `   Статус: ${safeStatus}\n`;
-            message += `   ${safeSubscriptionInfo}\n`;
+            message += `   ${subscriptionInfo}\n`; // Без экранирования
             message += `   Подписок: ${user.subscriptionCount || 0}\n\n`;
         }
 
