@@ -5,6 +5,7 @@ const { formatDate } = require('../utils/helpers');
 const { Markup } = require('telegraf');
 const { checkAdmin } = require('../utils/auth');
 const { getConfig } = require('../services/configService');
+const { formatDate, escapeMarkdown } = require('../utils/helpers');
 
 /**
  * Обрабатывает запрос на проверку ожидающих платежей с пагинацией.
