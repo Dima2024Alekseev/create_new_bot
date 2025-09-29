@@ -184,7 +184,7 @@ exports.setupReminders = (bot) => {
   });
 
   // Каждую минуту - проверка истекших пробных доступов
-  cron.schedule('* * * * *', () => checkExpiredTrials(bot), {
+  cron.schedule('0 */10 * * * *', () => checkExpiredTrials(bot), {
     timezone: 'Asia/Krasnoyarsk'
   });
 
