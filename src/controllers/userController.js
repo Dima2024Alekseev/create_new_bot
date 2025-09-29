@@ -1,16 +1,10 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { Markup } = require('telegraf');
-const { formatDate, formatDuration, paymentDetails, transliterate, escapeMarkdownV2 } = require('../utils/helpers');
+const { formatDate, formatDuration, paymentDetails, transliterate } = require('../utils/helpers');
 const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
 const fs = require('fs').promises;
-
-// Функция для экранирования специальных символов в MarkdownV2
-function escapeMarkdownV2(text) {
-    if (!text) return '';
-    return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
-}
 
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
@@ -38,7 +32,7 @@ exports.handleStart = async (ctx) => {
             if (expireDate && expireDate < now) {
                 user.status = 'inactive';
                 await user.save();
-                statusText = '❌ *Ваша подписка истекла\\.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку\\.\n\nЕсли у вас есть вопросы \\- просто напишите сообщение, и администратор ответит вам\\.';
+                statusText = '❌ *Ваша подписка истекла.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.\n\nЕсли у вас есть вопросы - просто напишите сообщение, и администратор ответит вам.';
                 keyboardButtons.push(
                     [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
                 );
@@ -46,10 +40,10 @@ exports.handleStart = async (ctx) => {
                 const timeLeft = expireDate - now;
                 const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
                 const duration = formatDuration(timeLeft);
-                statusText = `✅ *Ваша подписка активна\\!* Осталось ещё *${escapeMarkdownV2(duration)}*\\.`;
+                statusText = `✅ *Ваша подписка активна!* Осталось ещё *${duration}*.\n`;
 
                 if (daysLeft < 7) {
-                    statusText += `\n\n⚠️ Ваша подписка скоро истекает\\. Чтобы продлить её, нажмите кнопку ниже\\.`;
+                    statusText += `\n⚠️ Ваша подписка скоро истекает. Чтобы продлить её, нажмите кнопку ниже.\n`;
                 }
 
                 keyboardButtons.push(
@@ -60,36 +54,36 @@ exports.handleStart = async (ctx) => {
                 );
             }
         } else if (user.status === 'inactive') {
-            statusText = '❌ *Ваша подписка неактивна\\.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку\\.';
+            statusText = '❌ *Ваша подписка неактивна.*\n\nЧтобы получить доступ к VPN, пожалуйста, оплатите подписку.';
             keyboardButtons.push(
                 [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
             if (!user.trialUsed) {
                 keyboardButtons.push(
-                    [{ text: '🆓 Пробный доступ \\(1 час\\)', callback_data: 'request_trial' }]
+                    [{ text: '🆓 Пробный доступ (1 час)', callback_data: 'request_trial' }]
                 );
             }
         } else if (user.status === 'pending') {
-            statusText = '⏳ *Ваш платёж на проверке\\.* Пожалуйста, подождите, пока администратор подтвердит его\\.';
+            statusText = '⏳ *Ваш платёж на проверке.* Пожалуйста, подождите, пока администратор подтвердит его.';
             keyboardButtons.push(
                 [{ text: '❓ Задать вопрос', callback_data: 'ask_question' }]
             );
         } else if (user.status === 'rejected') {
-            statusText = '❌ *Ваш платёж был отклонён\\.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных\\.';
+            statusText = '❌ *Ваш платёж был отклонён.*\n\nПожалуйста, отправьте скриншот ещё раз, убедившись в правильности данных.';
             keyboardButtons.push(
                 [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
             if (!user.trialUsed) {
                 keyboardButtons.push(
-                    [{ text: '🆓 Пробный доступ \\(1 час\\)', callback_data: 'request_trial' }]
+                    [{ text: '🆓 Пробный доступ (1 час)', callback_data: 'request_trial' }]
                 );
             }
         }
 
         await ctx.reply(
-            `👋 Привет, *${escapeMarkdownV2(user.firstName)}*\\! Я бот для управления VPN\\.\n\n${statusText}`,
+            `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
             {
-                parse_mode: 'MarkdownV2',
+                parse_mode: 'Markdown',
                 reply_markup: {
                     inline_keyboard: keyboardButtons
                 }
@@ -98,7 +92,7 @@ exports.handleStart = async (ctx) => {
 
     } catch (error) {
         console.error('Ошибка в handleStart:', error);
-        await ctx.reply('⚠️ Произошла ошибка\\. Пожалуйста, попробуйте позже\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.reply('⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.');
     }
 };
 
@@ -109,7 +103,7 @@ exports.checkSubscriptionStatus = async (ctx) => {
         await ctx.answerCbQuery();
 
         if (!user || user.status !== 'active') {
-            return ctx.reply('❌ Ваша подписка неактивна\\. Чтобы получить доступ, оплатите подписку\\.', { parse_mode: 'MarkdownV2' });
+            return ctx.reply('❌ Ваша подписка неактивна. Чтобы получить доступ, оплатите подписку.');
         }
 
         const now = new Date();
@@ -118,20 +112,20 @@ exports.checkSubscriptionStatus = async (ctx) => {
         if (timeLeft > 0) {
             const duration = formatDuration(timeLeft);
             await ctx.reply(
-                `✅ *Ваша подписка активна\\!*` +
-                `\n\nСрок действия: *${escapeMarkdownV2(formatDate(user.expireDate, true))}*` +
-                `\nОсталось: *${escapeMarkdownV2(duration)}*`,
-                { parse_mode: 'MarkdownV2' }
+                `✅ *Ваша подписка активна!*` +
+                `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
+                `\nОсталось: *${duration}*`,
+                { parse_mode: 'Markdown' }
             );
         } else {
             user.status = 'inactive';
             await user.save();
-            await ctx.reply('❌ Ваша подписка истекла\\. Пожалуйста, продлите её\\.', { parse_mode: 'MarkdownV2' });
+            await ctx.reply('❌ Ваша подписка истекла. Пожалуйста, продлите её.');
         }
 
     } catch (error) {
         console.error('Ошибка в checkSubscriptionStatus:', error);
-        await ctx.reply('⚠️ Произошла ошибка при проверке статуса\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.reply('⚠️ Произошла ошибка при проверке статуса.');
     }
 };
 
@@ -143,41 +137,37 @@ exports.extendSubscription = async (ctx) => {
     try {
         await ctx.answerCbQuery();
         const paymentMessage = await paymentDetails(userId, name);
-        await ctx.reply(
-            escapeMarkdownV2(paymentMessage) +
-            `\n\n*После оплаты отправьте скриншот сюда\\. Администратор проверит его и активирует вашу подписку\\.*`,
+        await ctx.replyWithMarkdown(
+            paymentMessage +
+            `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
             {
-                parse_mode: 'MarkdownV2',
                 disable_web_page_preview: true
             }
         );
         ctx.session.awaitingPaymentProof = true;
     } catch (error) {
         console.error('Ошибка в extendSubscription:', error);
-        await ctx.reply('⚠️ Произошла ошибка при отправке реквизитов\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.reply('⚠️ Произошла ошибка при отправке реквизитов.');
     }
 };
 
 exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply('✍️ Напишите ваш вопрос\\. Администратор ответит на него в ближайшее время\\.', { parse_mode: 'MarkdownV2' });
+    await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
 };
 
 exports.promptCancelSubscription = async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply(
-        'Вы уверены, что хотите отменить подписку\\?\n\n' +
-        'Отмена подписки приведёт к потере доступа к VPN\\. ' +
-        'Возможно, вам лучше просто не продлевать её по истечении срока\\?',
-        {
-            parse_mode: 'MarkdownV2',
-            reply_markup: Markup.inlineKeyboard([
-                [
-                    Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
-                    Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
-                ]
-            ])
-        }
+        'Вы уверены, что хотите отменить подписку?\n\n' +
+        'Отмена подписки приведёт к потере доступа к VPN. ' +
+        'Возможно, вам лучше просто не продлевать её по истечении срока?',
+        Markup.inlineKeyboard([
+            [
+                Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
+                Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
+            ]
+        ])
     );
 };
 
@@ -190,8 +180,8 @@ exports.cancelSubscriptionFinal = async (ctx) => {
         const user = await User.findOne({ userId });
 
         if (!user) {
-            await ctx.answerCbQuery('❌ Пользователь не найден\\.');
-            return ctx.editMessageText('Ошибка: пользователь не найден\\.', { parse_mode: 'MarkdownV2' });
+            await ctx.answerCbQuery('❌ Пользователь не найден.');
+            return ctx.editMessageText('Ошибка: пользователь не найден.');
         }
 
         if (user.vpnClientName) {
@@ -208,26 +198,26 @@ exports.cancelSubscriptionFinal = async (ctx) => {
             }
         );
 
-        await ctx.answerCbQuery('✅ Подписка отменена\\.');
-        await ctx.editMessageText('Ваша подписка отменена\\. Доступ к VPN прекращён\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.answerCbQuery('✅ Подписка отменена.');
+        await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN прекращён.');
 
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 *Оповещение:* Пользователь *${escapeMarkdownV2(name)}* \\(ID: ${userId}\\) отменил подписку\\.\n` +
-            `VPN\\-клиент *${escapeMarkdownV2(user.vpnClientName || 'не указан')}* отключён\\.`,
-            { parse_mode: 'MarkdownV2' }
+            `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.\n` +
+            `VPN-клиент *${user.vpnClientName || 'не указан'}* отключён.`,
+            { parse_mode: 'Markdown' }
         );
 
     } catch (error) {
         console.error(`Ошибка при отмене подписки (ID: ${userId}):`, error);
-        await ctx.answerCbQuery('⚠️ Ошибка при отмене подписки\\!');
-        await ctx.reply('Произошла ошибка\\. Попробуйте позже или свяжитесь с админом\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.answerCbQuery('⚠️ Ошибка при отмене подписки!');
+        await ctx.reply('Произошла ошибка. Попробуйте позже или свяжитесь с админом.');
     }
 };
 
 exports.cancelSubscriptionAbort = async (ctx) => {
-    await ctx.answerCbQuery('Отмена отменена\\.');
-    await ctx.editMessageText('Отлично\\! Ваша подписка остаётся активной\\. Вы можете проверить её статус в главном меню \\(/start\\)\\.', { parse_mode: 'MarkdownV2' });
+    await ctx.answerCbQuery('Отмена отменена.');
+    await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню (/start).');
 };
 
 exports.handleVpnConfigured = async (ctx) => {
@@ -235,23 +225,20 @@ exports.handleVpnConfigured = async (ctx) => {
     const user = await User.findOne({ userId });
     const name = user?.firstName || user?.username || `Пользователь ${userId}`;
 
-    await ctx.answerCbQuery('Отлично\\!');
+    await ctx.answerCbQuery('Отлично!');
     await ctx.editMessageText(
-        'Отлично\\! Приятного пользования\\.✌️\n\n' +
-        'Если у вас есть вопросы — просто напишите мне\\! Нажмите на кнопку ниже, и я помогу 😊',
-        {
-            parse_mode: 'MarkdownV2',
-            reply_markup: Markup.inlineKeyboard([
-                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
-            ])
-        }
+        'Отлично! Приятного пользования.✌️\n\n' +
+        'Если у вас есть вопросы — просто напишите мне! Нажмите на кнопку ниже, и я помогу 😊',
+        Markup.inlineKeyboard([
+            [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+        ])
     );
 
     try {
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `✅ *Оповещение:* Пользователь *${escapeMarkdownV2(name)}* \\(ID: ${userId}\\) успешно настроил VPN\\.`,
-            { parse_mode: 'MarkdownV2' }
+            `✅ *Оповещение:* Пользователь *${name}* (ID: ${userId}) успешно настроил VPN.`,
+            { parse_mode: 'Markdown' }
         );
     } catch (error) {
         console.error(`Ошибка при отправке оповещения администратору о настройке VPN для пользователя ${userId}:`, error);
@@ -263,8 +250,8 @@ exports.promptVpnFailure = async (ctx) => {
     await ctx.answerCbQuery();
     ctx.session.awaitingVpnTroubleshoot = userId;
     await ctx.reply(
-        'Опишите, пожалуйста, вашу проблему с настройкой\\. Это поможет администратору быстрее найти решение\\.',
-        { parse_mode: 'MarkdownV2' }
+        'Опишите, пожалуйста, вашу проблему с настройкой. ' +
+        'Это поможет администратору быстрее найти решение.'
     );
 };
 
@@ -281,11 +268,11 @@ exports.handleTrialRequest = async (ctx) => {
         }
 
         if (user.trialUsed) {
-            return ctx.reply('⚠️ Вы уже использовали пробный доступ\\. Для полного доступа оплатите подписку \\(/start\\)\\.', { parse_mode: 'MarkdownV2' });
+            return ctx.reply('⚠️ Вы уже использовали пробный доступ. Для полного доступа оплатите подписку (/start).');
         }
 
         if (user.status === 'active') {
-            return ctx.reply('⚠️ У вас уже активная подписка\\. Пробный доступ доступен только новым пользователям\\.', { parse_mode: 'MarkdownV2' });
+            return ctx.reply('⚠️ У вас уже активная подписка. Пробный доступ доступен только новым пользователям.');
         }
 
         // Создаем временного VPN-клиента с базовым именем 'trial'
@@ -312,26 +299,21 @@ exports.handleTrialRequest = async (ctx) => {
         // Отправляем видеоинструкцию
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(userId, { source: videoPath, filename: 'instruction.mp4' }, {
-            caption: '📹 *Видеоинструкция по настройке VPN*\n\nСледуйте инструкциям в видео для настройки конфигурации\\.',
-            parse_mode: 'MarkdownV2'
+            caption: '📹 *Видеоинструкция по настройке VPN*\n\nСледуйте инструкциям в видео для настройки конфигурации.',
+            parse_mode: 'Markdown'
         });
 
         await ctx.reply(
-            '🆓 *Пробный доступ выдан на 1 час\\!*' +
-            '\n\nСкачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN\\. Через 1 час доступ отключится автоматически\\.' +
-            '\n\nЕсли всё понравится, оплатите полную подписку в меню \\(/start\\)\\.',
-            { parse_mode: 'MarkdownV2' }
+            '🆓 *Пробный доступ выдан на 1 час!*\n\n' +
+            'Скачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN. Через 1 час доступ отключится автоматически.\n\n' +
+            'Если всё понравится, оплатите полную подписку в меню (/start).',
+            { parse_mode: 'Markdown' }
         );
-
-        // Формируем текст уведомления для админа
-        const adminMessage = `🔔 *Пробный доступ выдан:* Пользователь *${escapeMarkdownV2(first_name || username)}* \\(ID: ${userId}\\), клиент: ${escapeMarkdownV2(clientName)}\\. Истекает: ${escapeMarkdownV2(formatDate(user.trialExpire, true))}`;
-        console.log('[DEBUG] Текст уведомления админа:', adminMessage);
 
         // Уведомляем админа
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            adminMessage,
-            { parse_mode: 'MarkdownV2' }
+            `🔔 Пробный доступ выдан: Пользователь ${first_name || username} (ID: ${userId}), клиент: ${clientName}. Истекает: ${formatDate(user.trialExpire, true)}`
         );
 
         // Удаляем файл конфигурации после отправки
@@ -339,11 +321,7 @@ exports.handleTrialRequest = async (ctx) => {
 
     } catch (error) {
         console.error(`Ошибка при выдаче пробного доступа для ${userId}:`, error);
-        await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа\\. Свяжитесь с админом\\.', { parse_mode: 'MarkdownV2' });
-        await ctx.telegram.sendMessage(
-            process.env.ADMIN_ID,
-            `🚨 *Ошибка пробного VPN для* ${escapeMarkdownV2(userId.toString())}: ${escapeMarkdownV2(error.message)}`,
-            { parse_mode: 'MarkdownV2' }
-        );
+        await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа. Свяжитесь с админом.');
+        await ctx.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка пробного VPN для ${userId}: ${error.message}`);
     }
 };
