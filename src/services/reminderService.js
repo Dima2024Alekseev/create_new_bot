@@ -23,7 +23,7 @@ const checkUnansweredQuestions = async (bot) => {
         process.env.ADMIN_ID,
         `🚨 Срочно! ${urgentQuestions} вопросов ждут ответа более 24 часов!`
       );
-      console.log(`[Cron][${now.toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' })}] Уведомление админу о ${urgentQuestions} вопросах.`);
+      console.log(`[Cron][${now.toLocaleString('ru-RU', { timeZone: 'Asia/Krasnoyarsk' })}] Уведомление администратору о ${urgentQuestions} вопросах.`);
     }
   } catch (err) {
     console.error('[Cron] Ошибка проверки вопросов:', err);

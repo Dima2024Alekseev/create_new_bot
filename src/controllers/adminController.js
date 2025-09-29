@@ -11,7 +11,7 @@ const { formatDate, escapeMarkdown } = require('../utils/helpers');
  */
 exports.checkPayments = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     try {
@@ -137,7 +137,7 @@ const showPaymentsPage = async (ctx, page = 1) => {
  */
 exports.handlePaymentsPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const page = parseInt(ctx.match[1]);
@@ -158,7 +158,7 @@ exports.handlePaymentsPage = async (ctx) => {
 exports.stats = async (ctx) => {
     if (!checkAdmin(ctx)) {
         if (ctx.callbackQuery) {
-            return ctx.answerCbQuery('🚫 Только для админа');
+            return ctx.answerCbQuery('🚫 Только для администратора');
         }
         return;
     }
@@ -268,7 +268,7 @@ exports.checkAdminMenu = async (ctx) => {
  */
 exports.listUsers = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     try {
@@ -384,7 +384,7 @@ const showUsersPage = async (ctx, page = 1) => {
  */
 exports.handleUsersPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const page = parseInt(ctx.match[1]);
@@ -453,7 +453,7 @@ const getSubscriptionInfo = (user) => {
  */
 exports.listReviews = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     try {
@@ -562,7 +562,7 @@ const showReviewsPage = async (ctx, page = 1) => {
  */
 exports.handleReviewsPage = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const page = parseInt(ctx.match[1]);
@@ -608,7 +608,7 @@ const getReviewStabilityText = (stability) => {
  */
 exports.showBroadcastMenu = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     try {
@@ -662,7 +662,7 @@ exports.showBroadcastMenu = async (ctx) => {
  */
 exports.startBroadcast = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const targetGroup = ctx.match[1];
@@ -708,7 +708,7 @@ exports.startBroadcast = async (ctx) => {
  */
 exports.confirmBroadcast = async (ctx, message) => {
     if (!checkAdmin(ctx)) {
-        return ctx.reply('🚫 Только для админа');
+        return ctx.reply('🚫 Только для администратора');
     }
 
     const targetGroup = ctx.session.broadcastTarget;
@@ -782,7 +782,7 @@ exports.confirmBroadcast = async (ctx, message) => {
  */
 exports.executeBroadcast = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const targetGroup = ctx.session.broadcastTarget;
@@ -887,7 +887,7 @@ exports.executeBroadcast = async (ctx) => {
  */
 exports.cancelBroadcast = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     try {

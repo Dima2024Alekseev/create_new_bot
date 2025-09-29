@@ -26,7 +26,7 @@ exports.handlePhoto = async (ctx) => {
     const { id, first_name, username } = ctx.from;
 
     if (id === parseInt(process.env.ADMIN_ID)) {
-        return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
+        return ctx.reply('Вы в режиме администратора, скриншоты не требуются.');
     }
 
     const user = await User.findOne({ userId: id });
@@ -85,7 +85,7 @@ exports.handlePhoto = async (ctx) => {
             }
         );
 
-        await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+        await ctx.reply('✅ Скриншот получен! Админстратор проверит его в ближайшее время.');
         ctx.session.awaitingPaymentProof = false;
     } catch (error) {
         console.error('[ERROR] Ошибка при обработке фото/платежа:', error);
@@ -101,7 +101,7 @@ exports.handlePhoto = async (ctx) => {
  */
 exports.handleApprove = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
 
     const userId = parseInt(ctx.match[1]);
@@ -204,7 +204,7 @@ exports.handleApprove = async (ctx) => {
                     ])
                 );
 
-                console.log(`[DEBUG] Отправка уведомления админу для ${userId}`);
+                console.log(`[DEBUG] Отправка уведомления администратору для ${userId}`);
                 const adminMessage = `✅ *VPN-доступ успешно создан для пользователя:*\n\n` +
                     `Имя: ${escapeMarkdown(updatedUser.firstName || updatedUser.username || 'Не указано')}\n` +
                     `ID: ${userId}\n` +
@@ -217,7 +217,7 @@ exports.handleApprove = async (ctx) => {
                         { parse_mode: 'Markdown' }
                     );
                 } catch (adminError) {
-                    console.error(`[ERROR] Не удалось отправить уведомление админу для ${userId}:`, adminError);
+                    console.error(`[ERROR] Не удалось отправить уведомление администратору для ${userId}:`, adminError);
                     await ctx.telegram.sendMessage(
                         process.env.ADMIN_ID,
                         `🚨 Ошибка отправки уведомления для пользователя ${userId}:\n` +
@@ -267,7 +267,7 @@ exports.handleApprove = async (ctx) => {
  */
 exports.handleReject = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
     const userId = parseInt(ctx.match[1]);
 
@@ -305,7 +305,7 @@ exports.handleReject = async (ctx) => {
  */
 exports.handleRejectSimple = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
     const userId = parseInt(ctx.match[1]);
 
@@ -347,7 +347,7 @@ exports.handleRejectSimple = async (ctx) => {
  */
 exports.handleRejectWithComment = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
     const userId = parseInt(ctx.match[1]);
 
@@ -383,7 +383,7 @@ exports.handleRejectWithComment = async (ctx) => {
  */
 exports.handleCancelRejection = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
     const userId = parseInt(ctx.match[1]);
 
@@ -466,7 +466,7 @@ exports.handleCancelRejection = async (ctx) => {
  */
 exports.handleReviewLater = async (ctx) => {
     if (!checkAdmin(ctx)) {
-        return ctx.answerCbQuery('🚫 Только для админа');
+        return ctx.answerCbQuery('🚫 Только для администратора');
     }
     const userId = parseInt(ctx.match[1]);
 

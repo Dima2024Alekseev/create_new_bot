@@ -20,7 +20,7 @@ exports.handlePhoto = async (ctx) => {
   const { id, first_name, username } = ctx.from;
 
   if (id === parseInt(process.env.ADMIN_ID)) {
-    return ctx.reply('Вы в режиме админа, скриншоты не требуются.');
+    return ctx.reply('Вы в режиме администратора, скриншоты не требуются.');
   }
 
   const user = await User.findOne({ userId: id });
@@ -74,7 +74,7 @@ exports.handlePhoto = async (ctx) => {
       }
     );
 
-    await ctx.reply('✅ Скриншот получен! Админ проверит его в ближайшее время.');
+    await ctx.reply('✅ Скриншот получен! Администратор проверит его в ближайшее время.');
     ctx.session.awaitingPaymentProof = false;
   } catch (error) {
     console.error('Ошибка при обработке фото/платежа:', error);
@@ -85,7 +85,7 @@ exports.handlePhoto = async (ctx) => {
 
 exports.handleApprove = async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
 
   const userId = parseInt(ctx.match[1]);
@@ -213,7 +213,7 @@ exports.handleApprove = async (ctx) => {
 
 exports.handleReject = async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
   const userId = parseInt(ctx.match[1]);
   try {

@@ -438,7 +438,7 @@ bot.on('photo', handlePhoto);
 
 // --- Обработчики кнопок (callback_data) ---
 
-// Кнопки админа
+// Кнопки администратора
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action(/reject_simple_(\d+)/, handleRejectSimple);
@@ -461,7 +461,7 @@ bot.action('cancel_broadcast', cancelBroadcast);
 bot.action('back_to_admin_menu', checkAdminMenu);
 bot.action('set_price_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
 
   const config = await getConfig();
@@ -485,7 +485,7 @@ bot.action('set_price_admin', async (ctx) => {
 
 bot.action('set_payment_phone_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
 
   const config = await getConfig();
@@ -508,7 +508,7 @@ bot.action('set_payment_phone_admin', async (ctx) => {
 
 bot.action('set_payment_card_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
 
   const config = await getConfig();
@@ -531,7 +531,7 @@ bot.action('set_payment_card_admin', async (ctx) => {
 
 bot.action('set_payment_bank_admin', async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
 
   const config = await getConfig();
@@ -553,7 +553,7 @@ bot.action('set_payment_bank_admin', async (ctx) => {
 });
 
 bot.action('confirm_price_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   const { newPrice } = ctx.session.pendingPriceChange;
   await finalizePriceChange(ctx, newPrice);
@@ -561,7 +561,7 @@ bot.action('confirm_price_change', async (ctx) => {
 });
 
 bot.action('cancel_price_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   delete ctx.session.pendingPriceChange;
   delete ctx.session.awaitingNewPrice;
@@ -572,7 +572,7 @@ bot.action('cancel_price_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_phone_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   const { newPhone } = ctx.session.pendingPaymentPhoneChange;
   await finalizePaymentPhoneChange(ctx, newPhone);
@@ -580,7 +580,7 @@ bot.action('confirm_payment_phone_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_phone_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   delete ctx.session.pendingPaymentPhoneChange;
   delete ctx.session.awaitingPaymentPhone;
@@ -591,7 +591,7 @@ bot.action('cancel_payment_phone_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_card_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   const { newCard } = ctx.session.pendingPaymentCardChange;
   await finalizePaymentCardChange(ctx, newCard);
@@ -599,7 +599,7 @@ bot.action('confirm_payment_card_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_card_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   delete ctx.session.pendingPaymentCardChange;
   delete ctx.session.awaitingPaymentCard;
@@ -610,7 +610,7 @@ bot.action('cancel_payment_card_change', async (ctx) => {
 });
 
 bot.action('confirm_payment_bank_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   const { newBank } = ctx.session.pendingPaymentBankChange;
   await finalizePaymentBankChange(ctx, newBank);
@@ -618,7 +618,7 @@ bot.action('confirm_payment_bank_change', async (ctx) => {
 });
 
 bot.action('cancel_payment_bank_change', async (ctx) => {
-  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для админа');
+  if (!checkAdmin(ctx)) return ctx.answerCbQuery('🚫 Только для администратора');
 
   delete ctx.session.pendingPaymentBankChange;
   delete ctx.session.awaitingPaymentBank;
@@ -630,7 +630,7 @@ bot.action('cancel_payment_bank_change', async (ctx) => {
 
 bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
   ctx.session.awaitingAnswerFor = ctx.match[1];
   await ctx.reply('✍️ Введите ответ для пользователя:');
@@ -639,7 +639,7 @@ bot.action(/answer_([0-9a-fA-F]{24})/, async (ctx) => {
 
 bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
   if (!checkAdmin(ctx)) {
-    return ctx.answerCbQuery('🚫 Только для админа');
+    return ctx.answerCbQuery('🚫 Только для администратора');
   }
   const targetUserId = parseInt(ctx.match[1]);
   ctx.session.awaitingAnswerVpnIssueFor = targetUserId;

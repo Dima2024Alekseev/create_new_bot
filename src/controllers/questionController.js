@@ -62,9 +62,9 @@ exports.handleQuestion = async (ctx) => {
 exports.listQuestions = async (ctx) => {
     if (!checkAdmin(ctx)) {
         if (ctx.callbackQuery) {
-            await ctx.answerCbQuery('🚫 Только для админа.');
+            await ctx.answerCbQuery('🚫 Только для администратора.');
         }
-        return ctx.reply('🚫 Только для админа.');
+        return ctx.reply('🚫 Только для администратора.');
     }
 
     if (ctx.callbackQuery) {
