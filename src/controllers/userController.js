@@ -6,6 +6,12 @@ const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../servic
 const path = require('path');
 const fs = require('fs').promises;
 
+// Функция для экранирования специальных символов в MarkdownV2
+function escapeMarkdownV2(text) {
+    if (!text) return '';
+    return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
     const { first_name, username } = ctx.from;
@@ -81,9 +87,9 @@ exports.handleStart = async (ctx) => {
         }
 
         await ctx.reply(
-            `👋 Привет, *${user.firstName}!* Я бот для управления VPN.\n\n` + statusText,
+            `👋 Привет, *${escapeMarkdownV2(user.firstName)}!* Я бот для управления VPN.\n\n${statusText}`,
             {
-                parse_mode: 'Markdown',
+                parse_mode: 'MarkdownV2',
                 reply_markup: {
                     inline_keyboard: keyboardButtons
                 }
@@ -113,9 +119,9 @@ exports.checkSubscriptionStatus = async (ctx) => {
             const duration = formatDuration(timeLeft);
             await ctx.reply(
                 `✅ *Ваша подписка активна!*` +
-                `\n\nСрок действия: *${formatDate(user.expireDate, true)}*` +
-                `\nОсталось: *${duration}*`,
-                { parse_mode: 'Markdown' }
+                `\n\nСрок действия: *${escapeMarkdownV2(formatDate(user.expireDate, true))}*` +
+                `\nОсталось: *${escapeMarkdownV2(duration)}*`,
+                { parse_mode: 'MarkdownV2' }
             );
         } else {
             user.status = 'inactive';
@@ -137,9 +143,9 @@ exports.extendSubscription = async (ctx) => {
     try {
         await ctx.answerCbQuery();
         const paymentMessage = await paymentDetails(userId, name);
-        await ctx.replyWithMarkdown(
-            paymentMessage +
-            `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
+        await ctx.replyWithMarkdownV2(
+            escapeMarkdownV2(paymentMessage) +
+            `\n\n*После оплаты отправьте скриншот сюда\. Администратор проверит его и активирует вашу подписку\.`,
             {
                 disable_web_page_preview: true
             }
@@ -203,9 +209,9 @@ exports.cancelSubscriptionFinal = async (ctx) => {
 
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 *Оповещение:* Пользователь *${name}* (ID: ${userId}) отменил подписку.\n` +
-            `VPN-клиент *${user.vpnClientName || 'не указан'}* отключён.`,
-            { parse_mode: 'Markdown' }
+            `🔔 *Оповещение:* Пользователь *${escapeMarkdownV2(name)}* \\(ID: ${userId}\\) отменил подписку\\.\n` +
+            `VPN\\-клиент *${escapeMarkdownV2(user.vpnClientName || 'не указан')}* отключён\\.`,
+            { parse_mode: 'MarkdownV2' }
         );
 
     } catch (error) {
@@ -237,8 +243,8 @@ exports.handleVpnConfigured = async (ctx) => {
     try {
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `✅ *Оповещение:* Пользователь *${name}* (ID: ${userId}) успешно настроил VPN.`,
-            { parse_mode: 'Markdown' }
+            `✅ *Оповещение:* Пользователь *${escapeMarkdownV2(name)}* \\(ID: ${userId}\\) успешно настроил VPN\\.`,
+            { parse_mode: 'MarkdownV2' }
         );
     } catch (error) {
         console.error(`Ошибка при отправке оповещения администратору о настройке VPN для пользователя ${userId}:`, error);
@@ -300,21 +306,25 @@ exports.handleTrialRequest = async (ctx) => {
         const videoPath = path.join(__dirname, '..', 'videos', 'instruction.mp4');
         await ctx.telegram.sendVideo(userId, { source: videoPath, filename: 'instruction.mp4' }, {
             caption: '📹 *Видеоинструкция по настройке VPN*\n\nСледуйте инструкциям в видео для настройки конфигурации.',
-            parse_mode: 'Markdown'
+            parse_mode: 'MarkdownV2'
         });
 
         await ctx.reply(
             '🆓 *Пробный доступ выдан на 1 час!*\n\n' +
             'Скачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN. Через 1 час доступ отключится автоматически.\n\n' +
             'Если всё понравится, оплатите полную подписку в меню (/start).',
-            { parse_mode: 'Markdown' }
+            { parse_mode: 'MarkdownV2' }
         );
+
+        // Формируем текст уведомления для админа
+        const adminMessage = `🔔 *Пробный доступ выдан:* Пользователь *${escapeMarkdownV2(first_name || username)}* \\(ID: ${userId}\\), клиент: ${escapeMarkdownV2(clientName)}\\. Истекает: ${escapeMarkdownV2(formatDate(user.trialExpire, true))}`;
+        console.log('[DEBUG] Текст уведомления админа:', adminMessage);
 
         // Уведомляем админа
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 *Пробный доступ выдан:* Пользователь ${first_name || username} (ID: ${userId}), клиент: ${clientName}. Истекает: ${formatDate(user.trialExpire, true)}`,
-            { parse_mode: 'Markdown' }
+            adminMessage,
+            { parse_mode: 'MarkdownV2' }
         );
 
         // Удаляем файл конфигурации после отправки
@@ -323,6 +333,10 @@ exports.handleTrialRequest = async (ctx) => {
     } catch (error) {
         console.error(`Ошибка при выдаче пробного доступа для ${userId}:`, error);
         await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа. Свяжитесь с админом.');
-        await ctx.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка пробного VPN для ${userId}: ${error.message}`);
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `🚨 *Ошибка пробного VPN для* ${escapeMarkdownV2(userId.toString())}: ${escapeMarkdownV2(error.message)}`,
+            { parse_mode: 'MarkdownV2' }
+        );
     }
 };
