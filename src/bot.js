@@ -14,7 +14,8 @@ const {
   promptVpnFailure,
   promptCancelSubscription,
   cancelSubscriptionFinal,
-  cancelSubscriptionAbort
+  cancelSubscriptionAbort,
+  handleTrialRequest
 } = require('./controllers/userController');
 
 const {
