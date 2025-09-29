@@ -60,7 +60,7 @@ exports.handleStart = async (ctx) => {
             );
             if (!user.trialUsed) {
                 keyboardButtons.push(
-                    [{ text: '🆓 Пробный доступ (5 мин)', callback_data: 'request_trial' }]
+                    [{ text: '🆓 Пробный доступ (1 час)', callback_data: 'request_trial' }]
                 );
             }
         } else if (user.status === 'pending') {
@@ -75,7 +75,7 @@ exports.handleStart = async (ctx) => {
             );
             if (!user.trialUsed) {
                 keyboardButtons.push(
-                    [{ text: '🆓 Пробный доступ (5 мин)', callback_data: 'request_trial' }]
+                    [{ text: '🆓 Пробный доступ (1 час)', callback_data: 'request_trial' }]
                 );
             }
         }
@@ -284,7 +284,7 @@ exports.handleTrialRequest = async (ctx) => {
         user.trialUsed = true;
         user.trialClientName = clientName;
         user.trialStart = now;
-        user.trialExpire = new Date(now.getTime() + 5 * 60 * 1000); // 5 минут
+        user.trialExpire = new Date(now.getTime() + 60 * 60 * 1000);
         await user.save();
 
         // Создаем папку configs, если она не существует
@@ -304,7 +304,8 @@ exports.handleTrialRequest = async (ctx) => {
         });
 
         await ctx.reply(
-            '🆓 *Пробный доступ выдан на 5 минут!*\n\n' +
+            '🆓 *Пробный доступ выдан на 1 час !*\n\n' +
+            'Не забудьте скачать приложение Wireguard с Google Play https://play.google.com/store/apps/details?id=com.wireguard.android',
             'Скачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN. Через 5 минут доступ отключится автоматически.\n\n' +
             'Если всё понравится, оплатите полную подписку в меню (/start).',
             { parse_mode: 'Markdown' }
