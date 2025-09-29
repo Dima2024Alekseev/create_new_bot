@@ -276,7 +276,7 @@ exports.handleTrialRequest = async (ctx) => {
         }
 
         // Создаем временного VPN-клиента
-        const baseName = `trial_${transliterate(first_name || username || 'user')}_${userId}`;
+        const baseName = `${transliterate(first_name || username || 'user')}_${userId}`;
         const { config, clientName } = await createVpnClient(baseName);
 
         // Обновляем пользователя
