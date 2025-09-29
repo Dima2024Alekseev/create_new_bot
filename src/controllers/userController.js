@@ -287,14 +287,18 @@ exports.handleTrialRequest = async (ctx) => {
         user.trialExpire = new Date(now.getTime() + 5 * 60 * 1000); // 5 минут
         await user.save();
 
+        // Создаем папку configs, если она не существует
+        const configDir = path.join(__dirname, '..', 'configs');
+        await fs.mkdir(configDir, { recursive: true });
+
         // Отправляем конфиг пользователю
-        const configPath = path.join(__dirname, '..', 'configs', `${clientName}.conf`);
+        const configPath = path.join(configDir, `${clientName}.conf`);
         await fs.writeFile(configPath, config);
         await ctx.telegram.sendDocument(userId, { source: configPath, filename: `${clientName}.conf` });
 
         await ctx.reply(
             '🆓 *Пробный доступ выдан на 5 минут!*\n\n' +
-            'Скачайте файл конфиг',
+            'Скачайте файл конфигурации выше и настройте VPN. Через 5 минут доступ отключится автоматически.\n\n' +
             'Если всё понравится, оплатите полную подписку в меню (/start).',
             { parse_mode: 'Markdown' }
         );
