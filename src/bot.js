@@ -695,6 +695,8 @@ bot.action('review_add_comment', requestComment);
 bot.action('review_finish', finishReview);
 bot.action('review_cancel', cancelReview);
 
+bot.action('request_trial', handleTrialRequest);
+
 // --- Напоминания ---
 setupReminders(bot);
 

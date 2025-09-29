@@ -45,6 +45,22 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  trialUsed: {
+    type: Boolean,
+    default: false,
+  },
+  trialClientName: {
+    type: String,
+    default: null,
+  },
+  trialStart: {
+    type: Date,
+    default: null,
+  },
+  trialExpire: {
+    type: Date,
+    default: null,
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);

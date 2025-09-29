@@ -53,7 +53,6 @@ const checkExpiringSubscriptions = async (bot) => {
     for (const user of expiringUsers) {
       try {
         const daysLeft = Math.ceil((user.expireDate - now) / 86400000);
-        // Исправлено: Убираем старую переменную окружения и правильно используем paymentDetails с await
         const paymentMessage = await paymentDetails(user.userId, user.firstName || user.username);
 
         await bot.telegram.sendMessage(
@@ -90,13 +89,11 @@ const checkExpiredSubscriptions = async (bot) => {
 
     for (const user of expiredUsers) {
       try {
-        // Обновление статуса
         await User.updateOne(
           { userId: user.userId },
           { status: 'inactive' }
         );
 
-        // Уведомление пользователя
         await bot.telegram.sendMessage(
           user.userId,
           '❌ *Ваша подписка истекла!* Доступ к VPN отключён.\n\n' +
@@ -104,7 +101,6 @@ const checkExpiredSubscriptions = async (bot) => {
           { parse_mode: 'Markdown' }
         );
 
-        // Отзыв VPN-доступа
         if (user.vpnClientName) {
           await revokeVpnClient(user.vpnClientName);
           console.log(`Отозван доступ для ${user.userId} (${user.vpnClientName})`);
@@ -121,6 +117,50 @@ const checkExpiredSubscriptions = async (bot) => {
     }
   } catch (err) {
     console.error('[Cron] Ошибка отключения подписок:', err);
+  }
+};
+
+/**
+ * Проверяет истекшие пробные доступы
+ */
+const checkExpiredTrials = async (bot) => {
+  try {
+    const now = new Date();
+    const expiredTrials = await User.find({
+      trialUsed: true,
+      trialExpire: { $lte: now },
+      trialClientName: { $ne: null }
+    });
+
+    console.log(`[Cron] Найдено ${expiredTrials.length} истекших пробных доступов.`);
+
+    for (const user of expiredTrials) {
+      try {
+        await revokeVpnClient(user.trialClientName);
+
+        user.trialClientName = null;
+        user.trialExpire = null;
+        await user.save();
+
+        await bot.telegram.sendMessage(
+          user.userId,
+          '⏰ *Пробный доступ истёк!* Если вам понравилось, оплатите подписку в меню (/start).',
+          { parse_mode: 'Markdown' }
+        );
+
+        await bot.telegram.sendMessage(
+          process.env.ADMIN_ID,
+          `🔔 *Пробный доступ истёк для:* ${user.firstName || user.username} (ID: ${user.userId})`,
+          { parse_mode: 'Markdown' }
+        );
+
+      } catch (e) {
+        console.error(`Ошибка отключения trial для ${user.userId}:`, e);
+        await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка отключения trial для ${user.userId}: ${e.message}`);
+      }
+    }
+  } catch (err) {
+    console.error('[Cron] Ошибка проверки trial:', err);
   }
 };
 
@@ -143,9 +183,15 @@ exports.setupReminders = (bot) => {
     timezone: 'Asia/Krasnoyarsk'
   });
 
+  // Каждую минуту - проверка истекших пробных доступов
+  cron.schedule('* * * * *', () => checkExpiredTrials(bot), {
+    timezone: 'Asia/Krasnoyarsk'
+  });
+
   console.log('✅ Cron-задачи настроены для GMT+7 (Красноярск)');
   console.log('Расписание:');
   console.log('- Напоминания: ежедневно в 10:00');
   console.log('- Вопросы: каждые 3 часа (0,3,6,9,12,15,18,21)');
   console.log('- Истекшие подписки: каждые 6 часов (0,6,12,18)');
+  console.log('- Истекшие пробные доступы: каждую минуту');
 };

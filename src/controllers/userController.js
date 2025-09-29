@@ -1,9 +1,10 @@
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { Markup } = require('telegraf');
-const { formatDate, formatDuration, paymentDetails } = require('../utils/helpers');
+const { formatDate, formatDuration, paymentDetails, transliterate } = require('../utils/helpers');
 const { createVpnClient, revokeVpnClient, enableVpnClient } = require('../services/vpnService');
 const path = require('path');
+const fs = require('fs').promises;
 
 exports.handleStart = async (ctx) => {
     const userId = ctx.from.id;
@@ -57,6 +58,11 @@ exports.handleStart = async (ctx) => {
             keyboardButtons.push(
                 [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
+            if (!user.trialUsed) {
+                keyboardButtons.push(
+                    [{ text: '🆓 Пробный доступ (5 мин)', callback_data: 'request_trial' }]
+                );
+            }
         } else if (user.status === 'pending') {
             statusText = '⏳ *Ваш платёж на проверке.* Пожалуйста, подождите, пока администратор подтвердит его.';
             keyboardButtons.push(
@@ -67,6 +73,11 @@ exports.handleStart = async (ctx) => {
             keyboardButtons.push(
                 [{ text: '💰 Оплатить подписку', callback_data: 'extend_subscription' }]
             );
+            if (!user.trialUsed) {
+                keyboardButtons.push(
+                    [{ text: '🆓 Пробный доступ (5 мин)', callback_data: 'request_trial' }]
+                );
+            }
         }
 
         await ctx.reply(
@@ -242,4 +253,65 @@ exports.promptVpnFailure = async (ctx) => {
         'Опишите, пожалуйста, вашу проблему с настройкой. ' +
         'Это поможет администратору быстрее найти решение.'
     );
+};
+
+exports.handleTrialRequest = async (ctx) => {
+    const userId = ctx.from.id;
+    const { first_name, username } = ctx.from;
+
+    try {
+        let user = await User.findOne({ userId });
+        if (!user) {
+            // Если пользователь новый, создаем
+            user = new User({ userId, firstName: first_name, username });
+            await user.save();
+        }
+
+        if (user.trialUsed) {
+            return ctx.reply('⚠️ Вы уже использовали пробный доступ. Для полного доступа оплатите подписку (/start).');
+        }
+
+        if (user.status === 'active') {
+            return ctx.reply('⚠️ У вас уже активная подписка. Пробный доступ доступен только новым пользователям.');
+        }
+
+        // Создаем временного VPN-клиента
+        const baseName = `trial_${transliterate(first_name || username || 'user')}_${userId}`;
+        const { config, clientName } = await createVpnClient(baseName);
+
+        // Обновляем пользователя
+        const now = new Date();
+        user.trialUsed = true;
+        user.trialClientName = clientName;
+        user.trialStart = now;
+        user.trialExpire = new Date(now.getTime() + 5 * 60 * 1000); // 5 минут
+        await user.save();
+
+        // Отправляем конфиг пользователю
+        const configPath = path.join(__dirname, '..', 'configs', `${clientName}.conf`);
+        await fs.writeFile(configPath, config);
+        await ctx.telegram.sendDocument(userId, { source: configPath, filename: `${clientName}.conf` });
+
+        await ctx.reply(
+            '🆓 *Пробный доступ выдан на 5 минут!*\n\n' +
+            'Скачайте файл конфиг',
+            'Если всё понравится, оплатите полную подписку в меню (/start).',
+            { parse_mode: 'Markdown' }
+        );
+
+        // Уведомляем админа
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `🔔 *Пробный доступ выдан:* Пользователь ${first_name || username} (ID: ${userId}), клиент: ${clientName}. Истекает: ${formatDate(user.trialExpire, true)}`,
+            { parse_mode: 'Markdown' }
+        );
+
+        // Удаляем файл после отправки
+        await fs.unlink(configPath);
+
+    } catch (error) {
+        console.error(`Ошибка при выдаче пробного доступа для ${userId}:`, error);
+        await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа. Свяжитесь с админом.');
+        await ctx.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка пробного VPN для ${userId}: ${error.message}`);
+    }
 };
