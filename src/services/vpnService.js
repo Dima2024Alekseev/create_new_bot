@@ -252,3 +252,34 @@ exports.enableVpnClient = async (clientName) => {
         throw new Error(`Не удалось включить VPN-клиента: ${error.message}`);
     }
 };
+
+async function deleteClient(clientId) {
+    try {
+        console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
+        await api.post(`/api/wireguard/client/${clientId}/remove`);
+        console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
+    } catch (error) {
+        console.error('❌ Ошибка удаления клиента:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+        throw error;
+    }
+}
+
+exports.deleteVpnClient = async (clientName) => {
+    try {
+        console.log(`⌛ Начало удаления клиента: ${clientName}`);
+        await login();
+        const clientData = await getClientData(clientName);
+        await deleteClient(clientData.id);
+        console.log(`✅ Клиент "${clientName}" успешно удален.`);
+    } catch (error) {
+        console.error('🔥 Критическая ошибка при удалении:', {
+            message: error.message,
+            stack: error.stack
+        });
+        throw new Error(`Не удалось удалить VPN-клиента: ${error.message}`);
+    }
+};

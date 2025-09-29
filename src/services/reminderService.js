@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const User = require('../models/User');
 const Question = require('../models/Question');
 const { paymentDetails, formatDate } = require('../utils/helpers');
-const { revokeVpnClient } = require('./vpnService');
+const { revokeVpnClient, deleteVpnClient } = require('./vpnService');
 
 // Установка часового пояса для Красноярска (GMT+7)
 process.env.TZ = 'Asia/Krasnoyarsk';
@@ -136,7 +136,7 @@ const checkExpiredTrials = async (bot) => {
 
     for (const user of expiredTrials) {
       try {
-        await revokeVpnClient(user.trialClientName);
+        await deleteVpnClient(user.trialClientName);
 
         user.trialClientName = null;
         user.trialExpire = null;
@@ -155,8 +155,8 @@ const checkExpiredTrials = async (bot) => {
         );
 
       } catch (e) {
-        console.error(`Ошибка отключения trial для ${user.userId}:`, e);
-        await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка отключения trial для ${user.userId}: ${e.message}`);
+        console.error(`Ошибка удаления trial для ${user.userId}:`, e);
+        await bot.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка удаления trial для ${user.userId}: ${e.message}`);
       }
     }
   } catch (err) {
