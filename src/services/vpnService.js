@@ -256,7 +256,7 @@ exports.enableVpnClient = async (clientName) => {
 async function deleteClient(clientId) {
     try {
         console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
-        await api.post(`/api/wireguard/client/${clientId}/remove`);
+        await api.delete(`/api/wireguard/client/${clientId}`);
         console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
     } catch (error) {
         console.error('❌ Ошибка удаления клиента:', {
@@ -273,9 +273,17 @@ exports.deleteVpnClient = async (clientName) => {
         console.log(`⌛ Начало удаления клиента: ${clientName}`);
         await login();
         const clientData = await getClientData(clientName);
+        if (!clientData) {
+            console.warn(`[WARN] Клиент "${clientName}" не найден, пропускаем удаление`);
+            return;
+        }
         await deleteClient(clientData.id);
         console.log(`✅ Клиент "${clientName}" успешно удален.`);
     } catch (error) {
+        if (error.response?.status === 404) {
+            console.warn(`[WARN] Клиент "${clientName}" уже не существует на сервере`);
+            return;
+        }
         console.error('🔥 Критическая ошибка при удалении:', {
             message: error.message,
             stack: error.stack
