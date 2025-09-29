@@ -183,7 +183,7 @@ exports.setupReminders = (bot) => {
     timezone: 'Asia/Krasnoyarsk'
   });
 
-  // Каждую минуту - проверка истекших пробных доступов
+  // Каждые 10 минут - проверка истекших пробных доступов
   cron.schedule('0 */10 * * * *', () => checkExpiredTrials(bot), {
     timezone: 'Asia/Krasnoyarsk'
   });
@@ -193,5 +193,5 @@ exports.setupReminders = (bot) => {
   console.log('- Напоминания: ежедневно в 10:00');
   console.log('- Вопросы: каждые 3 часа (0,3,6,9,12,15,18,21)');
   console.log('- Истекшие подписки: каждые 6 часов (0,6,12,18)');
-  console.log('- Истекшие пробные доступы: каждую минуту');
+  console.log('- Истекшие пробные доступы: каждые 10 минут');
 };
