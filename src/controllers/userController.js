@@ -179,15 +179,12 @@ exports.promptCancelSubscription = async (ctx) => {
         'Вы уверены, что хотите отменить подписку?\n\n' +
         'Отмена подписки приведёт к потере доступа к VPN. ' +
         'Возможно, вам лучше просто не продлевать её по истечении срока?',
-        {
-            parse_mode: 'Markdown',
-            reply_markup: Markup.inlineKeyboard([
-                [
-                    Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
-                    Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
-                ]
-            ])
-        }
+        Markup.inlineKeyboard([
+            [
+                Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
+                Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
+            ]
+        ])
     );
 };
 
