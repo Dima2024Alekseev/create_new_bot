@@ -176,9 +176,9 @@ const checkExpiredTrials = async (bot) => {
 const cleanInactiveUsers = async (bot) => {
   try {
     const now = new Date();
-    const deletionThreshold = new Date(now.getTime() - 5 * 60 * 1000); // 5 минут назад для тестирования
+    const deletionThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 часа назад
 
-    // Пользователи без подписки, не взаимодействовавшие 5 минут
+    // Пользователи без подписки, не взаимодействовавшие 24 часа
     const inactiveUsers = await User.find({
       status: { $in: ['inactive', 'pending', 'rejected'] },
       lastInteraction: { $lte: deletionThreshold },
@@ -186,7 +186,7 @@ const cleanInactiveUsers = async (bot) => {
       expireDate: null
     });
 
-    // Пользователи с истёкшей подпиской, не продлившие 5 минут
+    // Пользователи с истёкшей подпиской, не продлившие 24 часа
     const expiredSubscriptionUsers = await User.find({
       status: 'inactive',
       subscriptionCount: { $gt: 0 },
@@ -194,7 +194,7 @@ const cleanInactiveUsers = async (bot) => {
       lastInteraction: { $lte: deletionThreshold }
     });
 
-    // Пользователи, отменившие подписку и не взаимодействовавшие 5 минут
+    // Пользователи, отменившие подписку и не взаимодействовавшие 24 часа
     const cancelledSubscriptionUsers = await User.find({
       status: 'inactive',
       subscriptionCount: { $gt: 0 },
@@ -300,8 +300,8 @@ exports.setupReminders = (bot) => {
     timezone: 'Asia/Krasnoyarsk'
   });
 
-  // Каждые 5 минут - очистка неактивных пользователей (для тестирования)
-  cron.schedule('*/5 * * * * *', () => cleanInactiveUsers(bot), {
+  // Ежедневно в 02:00 по Красноярску - очистка неактивных пользователей
+  cron.schedule('0 2 * * *', () => cleanInactiveUsers(bot), {
     timezone: 'Asia/Krasnoyarsk'
   });
 
@@ -311,5 +311,5 @@ exports.setupReminders = (bot) => {
   console.log('- Вопросы: каждые 3 часа (0,3,6,9,12,15,18,21)');
   console.log('- Истекшие подписки: каждые 6 часов (0,6,12,18)');
   console.log('- Истекшие пробные доступы: каждые 10 минут');
-  console.log('- Очистка неактивных пользователей: каждые 5 минут (для тестирования)');
+  console.log('- Очистка неактивных пользователей: ежедневно в 02:00');
 };
