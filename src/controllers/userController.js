@@ -17,7 +17,7 @@ exports.handleStart = async (ctx) => {
                 userId,
                 firstName: first_name,
                 username,
-                lastSeen: new Date()
+                lastInteraction: new Date() // Обновляем время взаимодействия
             },
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
@@ -99,7 +99,11 @@ exports.handleStart = async (ctx) => {
 exports.checkSubscriptionStatus = async (ctx) => {
     const userId = ctx.from.id;
     try {
-        const user = await User.findOne({ userId });
+        const user = await User.findOneAndUpdate(
+            { userId },
+            { lastInteraction: new Date() }, // Обновляем время взаимодействия
+            { new: true }
+        );
         await ctx.answerCbQuery();
 
         if (!user || user.status !== 'active') {
@@ -135,12 +139,17 @@ exports.extendSubscription = async (ctx) => {
     const name = first_name || username;
 
     try {
+        await User.updateOne(
+            { userId },
+            { lastInteraction: new Date() } // Обновляем время взаимодействия
+        );
         await ctx.answerCbQuery();
         const paymentMessage = await paymentDetails(userId, name);
-        await ctx.replyWithMarkdown(
+        await ctx.reply(
             paymentMessage +
             `\n\n*После оплаты отправьте скриншот сюда. Администратор проверит его и активирует вашу подписку.*`,
             {
+                parse_mode: 'Markdown',
                 disable_web_page_preview: true
             }
         );
@@ -153,21 +162,32 @@ exports.extendSubscription = async (ctx) => {
 
 exports.promptForQuestion = async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.');
+    await User.updateOne(
+        { userId: ctx.from.id },
+        { lastInteraction: new Date() } // Обновляем время взаимодействия
+    );
+    await ctx.reply('✍️ Напишите ваш вопрос. Администратор ответит на него в ближайшее время.', { parse_mode: 'Markdown' });
 };
 
 exports.promptCancelSubscription = async (ctx) => {
     await ctx.answerCbQuery();
+    await User.updateOne(
+        { userId: ctx.from.id },
+        { lastInteraction: new Date() } // Обновляем время взаимодействия
+    );
     await ctx.reply(
         'Вы уверены, что хотите отменить подписку?\n\n' +
         'Отмена подписки приведёт к потере доступа к VPN. ' +
         'Возможно, вам лучше просто не продлевать её по истечении срока?',
-        Markup.inlineKeyboard([
-            [
-                Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
-                Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
-            ]
-        ])
+        {
+            parse_mode: 'Markdown',
+            reply_markup: Markup.inlineKeyboard([
+                [
+                    Markup.button.callback('❌ Да, отменить', 'cancel_subscription_final'),
+                    Markup.button.callback('✅ Нет, оставить', 'cancel_subscription_abort')
+                ]
+            ])
+        }
     );
 };
 
@@ -177,7 +197,11 @@ exports.cancelSubscriptionFinal = async (ctx) => {
     const name = first_name || username || `Пользователь ${userId}`;
 
     try {
-        const user = await User.findOne({ userId });
+        const user = await User.findOneAndUpdate(
+            { userId },
+            { lastInteraction: new Date() }, // Обновляем время взаимодействия
+            { new: true }
+        );
 
         if (!user) {
             await ctx.answerCbQuery('❌ Пользователь не найден.');
@@ -186,7 +210,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
 
         if (user.vpnClientName) {
             await revokeVpnClient(user.vpnClientName);
-            console.log(`🔒 VPNmeln для ${user.vpnClientName} (ID: ${userId})`);
+            console.log(`🔒 VPN-клиент отозван для ${user.vpnClientName} (ID: ${userId})`);
         }
 
         await User.updateOne(
@@ -199,7 +223,7 @@ exports.cancelSubscriptionFinal = async (ctx) => {
         );
 
         await ctx.answerCbQuery('✅ Подписка отменена.');
-        await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN прекращён.');
+        await ctx.editMessageText('Ваша подписка отменена. Доступ к VPN прекращён.', { parse_mode: 'Markdown' });
 
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
@@ -217,21 +241,32 @@ exports.cancelSubscriptionFinal = async (ctx) => {
 
 exports.cancelSubscriptionAbort = async (ctx) => {
     await ctx.answerCbQuery('Отмена отменена.');
-    await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню (/start).');
+    await User.updateOne(
+        { userId: ctx.from.id },
+        { lastInteraction: new Date() } // Обновляем время взаимодействия
+    );
+    await ctx.editMessageText('Отлично! Ваша подписка остаётся активной. Вы можете проверить её статус в главном меню (/start).', { parse_mode: 'Markdown' });
 };
 
 exports.handleVpnConfigured = async (ctx) => {
     const userId = ctx.match[1];
-    const user = await User.findOne({ userId });
+    const user = await User.findOneAndUpdate(
+        { userId },
+        { lastInteraction: new Date() }, // Обновляем время взаимодействия
+        { new: true }
+    );
     const name = user?.firstName || user?.username || `Пользователь ${userId}`;
 
     await ctx.answerCbQuery('Отлично!');
     await ctx.editMessageText(
         'Отлично! Приятного пользования.✌️\n\n' +
         'Если у вас есть вопросы — просто напишите мне! Нажмите на кнопку ниже, и я помогу 😊',
-        Markup.inlineKeyboard([
-            [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
-        ])
+        {
+            parse_mode: 'Markdown',
+            reply_markup: Markup.inlineKeyboard([
+                [Markup.button.callback('❓ Задать вопрос', 'ask_question')]
+            ])
+        }
     );
 
     try {
@@ -248,10 +283,14 @@ exports.handleVpnConfigured = async (ctx) => {
 exports.promptVpnFailure = async (ctx) => {
     const userId = ctx.from.id;
     await ctx.answerCbQuery();
+    await User.updateOne(
+        { userId },
+        { lastInteraction: new Date() } // Обновляем время взаимодействия
+    );
     ctx.session.awaitingVpnTroubleshoot = userId;
     await ctx.reply(
-        'Опишите, пожалуйста, вашу проблему с настройкой. ' +
-        'Это поможет администратору быстрее найти решение.'
+        'Опишите, пожалуйста, вашу проблему с настройкой. Это поможет администратору быстрее найти решение.',
+        { parse_mode: 'Markdown' }
     );
 };
 
@@ -263,16 +302,18 @@ exports.handleTrialRequest = async (ctx) => {
         let user = await User.findOne({ userId });
         if (!user) {
             // Если пользователь новый, создаем
-            user = new User({ userId, firstName: first_name, username });
+            user = new User({ userId, firstName: first_name, username, lastInteraction: new Date() });
             await user.save();
+        } else {
+            await User.updateOne({ userId }, { lastInteraction: new Date() });
         }
 
         if (user.trialUsed) {
-            return ctx.reply('⚠️ Вы уже использовали пробный доступ. Для полного доступа оплатите подписку (/start).');
+            return ctx.reply('⚠️ Вы уже использовали пробный доступ. Для полного доступа оплатите подписку (/start).', { parse_mode: 'Markdown' });
         }
 
         if (user.status === 'active') {
-            return ctx.reply('⚠️ У вас уже активная подписка. Пробный доступ доступен только новым пользователям.');
+            return ctx.reply('⚠️ У вас уже активная подписка. Пробный доступ доступен только новым пользователям.', { parse_mode: 'Markdown' });
         }
 
         // Создаем временного VPN-клиента с базовым именем 'trial'
@@ -305,7 +346,7 @@ exports.handleTrialRequest = async (ctx) => {
 
         await ctx.reply(
             '🆓 *Пробный доступ выдан на 1 час!*\n\n' +
-            'Не забудьте скачать приложение Wireguard с Google Play https://play.google.com/store/apps/details?id=com.wireguard.android',
+            'Не забудьте скачать приложение Wireguard с Google Play https://play.google.com/store/apps/details?id=com.wireguard.android\n' +
             'Скачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN. Через 1 час доступ отключится автоматически.\n\n' +
             'Если всё понравится, оплатите полную подписку в меню (/start).',
             { parse_mode: 'Markdown' }
@@ -314,7 +355,8 @@ exports.handleTrialRequest = async (ctx) => {
         // Уведомляем администратора
         await ctx.telegram.sendMessage(
             process.env.ADMIN_ID,
-            `🔔 Пробный доступ выдан: Пользователь ${first_name || username} (ID: ${userId}), клиент: ${clientName}. Истекает: ${formatDate(user.trialExpire, true)}`
+            `🔔 Пробный доступ выдан: Пользователь ${first_name || username} (ID: ${userId}), клиент: ${clientName}. Истекает: ${formatDate(user.trialExpire, true)}`,
+            { parse_mode: 'Markdown' }
         );
 
         // Удаляем файл конфигурации после отправки
@@ -322,7 +364,11 @@ exports.handleTrialRequest = async (ctx) => {
 
     } catch (error) {
         console.error(`Ошибка при выдаче пробного доступа для ${userId}:`, error);
-        await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа. Свяжитесь с администратором.');
-        await ctx.telegram.sendMessage(process.env.ADMIN_ID, `🚨 Ошибка пробного VPN для ${userId}: ${error.message}`);
+        await ctx.reply('⚠️ Произошла ошибка при выдаче пробного доступа. Свяжитесь с администратором.', { parse_mode: 'Markdown' });
+        await ctx.telegram.sendMessage(
+            process.env.ADMIN_ID,
+            `🚨 Ошибка пробного VPN для ${userId}: ${error.message}`,
+            { parse_mode: 'Markdown' }
+        );
     }
 };
