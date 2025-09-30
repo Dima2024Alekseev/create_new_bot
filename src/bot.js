@@ -385,10 +385,7 @@ bot.use(async (ctx, next) => {
       }
     );
 
-    await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.', {
-      parse_mode: 'Markdown',
-      reply_markup: Markup.keyboard([['/start']]).resize()
-    });
+    await ctx.reply('✅ Ваше описание проблемы отправлено администратору. Он свяжется с вами для дальнейших инструкций.');
     ctx.session.awaitingVpnTroubleshoot = null;
     return;
   }
@@ -430,21 +427,6 @@ bot.on('text', async (ctx, next) => {
   }
 });
 
-// Обработка команд reply-клавиатуры
-bot.hears('💰 Оплатить подписку', extendSubscription);
-bot.hears('🗓 Посмотреть срок действия', checkSubscriptionStatus);
-bot.hears('⭐ Оставить отзыв', async (ctx) => {
-  await startReview(ctx);
-  await ctx.reply('Нажмите, чтобы вернуться в главное меню:', {
-    reply_markup: Markup.keyboard([['/start']]).resize()
-  });
-});
-bot.hears('❌ Отменить подписку', promptCancelSubscription);
-bot.hears('❓ Задать вопрос', promptForQuestion);
-bot.hears('🆓 Пробный доступ (1 час)', handleTrialRequest);
-bot.hears('Да', cancelSubscriptionFinal);
-bot.hears('Нет', cancelSubscriptionAbort);
-
 // Админские команды
 bot.command('admin', checkAdminMenu);
 bot.command('check', checkPayments);
@@ -454,7 +436,9 @@ bot.command('questions', listQuestions);
 // Обработка платежей (фото)
 bot.on('photo', handlePhoto);
 
-// --- Обработчики кнопок (callback_data) для админских функций ---
+// --- Обработчики кнопок (callback_data) ---
+
+// Кнопки администратора
 bot.action(/approve_(\d+)/, handleApprove);
 bot.action(/reject_(\d+)/, handleReject);
 bot.action(/reject_simple_(\d+)/, handleRejectSimple);
@@ -663,6 +647,47 @@ bot.action(/answer_vpn_issue_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
 });
 
+// Кнопки пользователя
+bot.action('check_subscription', async (ctx) => {
+  await checkSubscriptionStatus(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
+bot.action('ask_question', promptForQuestion);
+bot.action('extend_subscription', async (ctx) => {
+  await extendSubscription(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
+bot.action('leave_review', async (ctx) => {
+  await startReview(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
+bot.action(/vpn_configured_(\d+)/, handleVpnConfigured);
+bot.action(/vpn_failed_(\d+)/, promptVpnFailure);
+bot.action('back_to_user_menu', async (ctx) => {
+  await ctx.answerCbQuery();
+  await handleStart(ctx);
+});
+
+// Обработчики для отмены подписки
+bot.action('cancel_subscription_confirm', async (ctx) => {
+  await promptCancelSubscription(ctx);
+  await ctx.reply(
+    'Нажмите, чтобы вернуться в главное меню:',
+    Markup.inlineKeyboard([[Markup.button.callback('🏠 Личный кабинет', 'back_to_user_menu')]])
+  );
+});
+bot.action('cancel_subscription_final', cancelSubscriptionFinal);
+bot.action('cancel_subscription_abort', cancelSubscriptionAbort);
+
 // Обработчики для отзывов
 bot.action(/review_rating_(\d+)/, handleRating);
 bot.action(/review_speed_(.+)/, handleSpeed);
@@ -670,6 +695,8 @@ bot.action(/review_stability_(.+)/, handleStability);
 bot.action('review_add_comment', requestComment);
 bot.action('review_finish', finishReview);
 bot.action('review_cancel', cancelReview);
+
+bot.action('request_trial', handleTrialRequest);
 
 // --- Напоминания ---
 setupReminders(bot);
