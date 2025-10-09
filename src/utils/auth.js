@@ -4,5 +4,7 @@
  * @returns {boolean} - true, если пользователь администратор, иначе false.
  */
 exports.checkAdmin = (ctx) => {
-    return ctx.from && ctx.from.id === parseInt(process.env.ADMIN_ID);
+    if (!ctx.from) return false;
+    const adminIds = process.env.ADMIN_ID.split(',').map(id => parseInt(id.trim()));
+    return adminIds.includes(ctx.from.id);
 };
