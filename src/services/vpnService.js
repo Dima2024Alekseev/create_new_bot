@@ -2,7 +2,7 @@ const axios = require('axios');
 
 // Конфигурация API
 const API_CONFIG = {
-    BASE_URL: 'http://37.233.85.212:51821',
+    BASE_URL: 'http://151.245.139.177:51821',
     PASSWORD: process.env.WG_API_PASSWORD,
     SERVER_PUBLIC_KEY: process.env.WG_SERVER_PUBLIC_KEY,
     TIMEOUT: 30000
