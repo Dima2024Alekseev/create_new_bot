@@ -4,7 +4,6 @@ const axios = require('axios');
 const API_CONFIG = {
     BASE_URL: 'http://151.245.139.177:51821',
     PASSWORD: process.env.WG_API_PASSWORD,
-    SERVER_PUBLIC_KEY: process.env.WG_SERVER_PUBLIC_KEY,
     TIMEOUT: 30000
 };
 
@@ -24,7 +23,7 @@ const api = axios.create({
 api.interceptors.request.use(config => {
     if (sessionCookies) {
         config.headers.Cookie = sessionCookies;
-        console.log('[DEBUG] Добавляем cookies в запрос:', sessionCookies);
+        console.log('[DEBUG] Добавляем cookies в запрос');
     }
     return config;
 });
@@ -34,13 +33,12 @@ api.interceptors.response.use(response => {
     const cookies = response.headers['set-cookie'] || response.headers['Set-Cookie'];
     if (cookies) {
         sessionCookies = Array.isArray(cookies) ? cookies.join('; ') : cookies;
-        console.log('[DEBUG] Получены cookies:', sessionCookies);
+        console.log('[DEBUG] Получены cookies');
     }
     return response;
 }, error => {
     console.error('[DEBUG] Ошибка запроса:', {
         status: error.response?.status,
-        headers: error.response?.headers,
         data: error.response?.data
     });
     return Promise.reject(error);
@@ -52,8 +50,7 @@ async function login() {
         const response = await api.post('/api/session', {
             password: API_CONFIG.PASSWORD
         }, {
-            validateStatus: (status) => status === 204,
-            transformResponse: [(data) => data]
+            validateStatus: (status) => status === 204
         });
         if (!sessionCookies) {
             throw new Error('Не удалось получить cookies авторизации');
@@ -92,8 +89,7 @@ async function createClient(clientName) {
     try {
         console.log(`[DEBUG] Создание клиента: ${clientName}`);
         const response = await api.post('/api/wireguard/client', {
-            name: clientName,
-            allowedIPs: '10.8.0.0/24'
+            name: clientName
         });
         console.log(`✅ Клиент "${clientName}" создан успешно`);
         return response.data;
@@ -122,23 +118,13 @@ async function getClientData(clientName) {
     }
 }
 
-async function getClientConfigFromText(clientId) {
+async function getClientConfigText(clientId) {
     try {
         console.log(`[DEBUG] Запрос конфигурации для ID: ${clientId}`);
         const response = await api.get(`/api/wireguard/client/${clientId}/configuration`, {
             responseType: 'text'
         });
-        const configText = response.data;
-        const privateKeyMatch = configText.match(/PrivateKey = (.+)/);
-        const presharedKeyMatch = configText.match(/PresharedKey = (.+)/);
-
-        if (!privateKeyMatch) {
-            throw new Error('Не найден PrivateKey в конфигурации');
-        }
-        return {
-            privateKey: privateKeyMatch[1].trim(),
-            presharedKey: presharedKeyMatch?.[1]?.trim()
-        };
+        return response.data;
     } catch (error) {
         console.error('❌ Ошибка получения конфигурации:', {
             status: error.response?.status,
@@ -146,24 +132,6 @@ async function getClientConfigFromText(clientId) {
         });
         throw error;
     }
-}
-
-function generateConfig(configData) {
-    if (!configData.privateKey || !configData.address || !API_CONFIG.SERVER_PUBLIC_KEY) {
-        throw new Error('Недостаточно данных для генерации конфига');
-    }
-
-    return `[Interface]
-PrivateKey = ${configData.privateKey}
-Address = ${configData.address}/24
-DNS = 1.1.1.1
-
-[Peer]
-PublicKey = ${API_CONFIG.SERVER_PUBLIC_KEY}
-${configData.presharedKey ? `PresharedKey = ${configData.presharedKey}` : ''}
-Endpoint = ${API_CONFIG.BASE_URL.replace('http://', '').replace(':51821', '')}:51820
-AllowedIPs = 0.0.0.0/0
-PersistentKeepalive = 25`;
 }
 
 async function disableClient(clientId) {
@@ -196,22 +164,39 @@ async function enableClient(clientId) {
     }
 }
 
+async function deleteClient(clientId) {
+    try {
+        console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
+        await api.delete(`/api/wireguard/client/${clientId}`);
+        console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
+    } catch (error) {
+        console.error('❌ Ошибка удаления клиента:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+        throw error;
+    }
+}
+
+// --- ЭКСПОРТИРУЕМЫЕ ФУНКЦИИ ---
+
+/**
+ * Создает нового VPN-клиента
+ * @param {string} baseName - Базовое имя клиента
+ * @returns {Promise<{config: string, clientName: string}>}
+ */
 exports.createVpnClient = async (baseName) => {
     try {
         console.log(`⌛ Начало создания клиента: ${baseName}`);
         await login();
         const clientName = await generateUniqueClientName(baseName);
         await createClient(clientName);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Ждем создания
         const clientData = await getClientData(clientName);
-        const { privateKey, presharedKey } = await getClientConfigFromText(clientData.id);
-        const config = generateConfig({
-            privateKey,
-            presharedKey,
-            address: clientData.address
-        });
-        console.log('✅ Конфигурация успешно сгенерирована');
-        return { config, clientName }; // Возвращаем clientName для сохранения в базе
+        const config = await getClientConfigText(clientData.id);
+        console.log('✅ Конфигурация успешно получена');
+        return { config, clientName };
     } catch (error) {
         console.error('🔥 Критическая ошибка:', {
             message: error.message,
@@ -221,6 +206,10 @@ exports.createVpnClient = async (baseName) => {
     }
 };
 
+/**
+ * Отключает VPN-клиента (отзыв доступа)
+ * @param {string} clientName - Имя клиента
+ */
 exports.revokeVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало отзыва клиента: ${clientName}`);
@@ -237,6 +226,10 @@ exports.revokeVpnClient = async (clientName) => {
     }
 };
 
+/**
+ * Включает VPN-клиента (восстановление доступа)
+ * @param {string} clientName - Имя клиента
+ */
 exports.enableVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало включения клиента: ${clientName}`);
@@ -253,21 +246,10 @@ exports.enableVpnClient = async (clientName) => {
     }
 };
 
-async function deleteClient(clientId) {
-    try {
-        console.log(`[DEBUG] Удаление клиента с ID: ${clientId}`);
-        await api.delete(`/api/wireguard/client/${clientId}`);
-        console.log(`✅ Клиент с ID "${clientId}" успешно удален`);
-    } catch (error) {
-        console.error('❌ Ошибка удаления клиента:', {
-            status: error.response?.status,
-            data: error.response?.data,
-            message: error.message
-        });
-        throw error;
-    }
-}
-
+/**
+ * Полностью удаляет VPN-клиента
+ * @param {string} clientName - Имя клиента
+ */
 exports.deleteVpnClient = async (clientName) => {
     try {
         console.log(`⌛ Начало удаления клиента: ${clientName}`);
@@ -289,5 +271,39 @@ exports.deleteVpnClient = async (clientName) => {
             stack: error.stack
         });
         throw new Error(`Не удалось удалить VPN-клиента: ${error.message}`);
+    }
+};
+
+/**
+ * Возвращает список всех VPN-клиентов
+ * @returns {Promise<Array>}
+ */
+exports.listVpnClients = async () => {
+    try {
+        console.log('[DEBUG] Запрос списка клиентов');
+        await login();
+        const response = await api.get('/api/wireguard/client');
+        return response.data;
+    } catch (error) {
+        console.error('❌ Ошибка получения списка клиентов:', error.message);
+        throw error;
+    }
+};
+
+/**
+ * Получает конфигурацию клиента по имени
+ * @param {string} clientName - Имя клиента
+ * @returns {Promise<string>} - Текст конфигурации
+ */
+exports.getVpnClientConfig = async (clientName) => {
+    try {
+        console.log(`[DEBUG] Получение конфигурации для клиента: ${clientName}`);
+        await login();
+        const clientData = await getClientData(clientName);
+        const config = await getClientConfigText(clientData.id);
+        return config;
+    } catch (error) {
+        console.error('❌ Ошибка получения конфигурации клиента:', error.message);
+        throw error;
     }
 };
