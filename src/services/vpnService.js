@@ -49,15 +49,27 @@ async function login() {
         console.log('[DEBUG] Попытка авторизации...');
         const response = await api.post('/api/session', {
             password: API_CONFIG.PASSWORD
-        }, {
-            validateStatus: (status) => status === 204
         });
-        if (!sessionCookies) {
-            throw new Error('Не удалось получить cookies авторизации');
+        
+        // Проверяем успешность авторизации
+        if (response.status === 200 && response.data && response.data.succcess === true) {
+            console.log('🔑 Авторизация успешна');
+            return true;
         }
-        console.log('🔑 Авторизация успешна');
-        return true;
+        
+        // Если статус 204 (старый вариант)
+        if (response.status === 204) {
+            console.log('🔑 Авторизация успешна (204)');
+            return true;
+        }
+        
+        throw new Error(`Неожиданный ответ: статус ${response.status}, данные: ${JSON.stringify(response.data)}`);
     } catch (error) {
+        console.error('[ERROR] Ошибка авторизации:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
         throw new Error(`Ошибка входа в систему: ${error.message}`);
     }
 }
@@ -307,5 +319,3 @@ exports.getVpnClientConfig = async (clientName) => {
         throw error;
     }
 };
-
-//доработал
