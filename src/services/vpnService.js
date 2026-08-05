@@ -307,3 +307,5 @@ exports.getVpnClientConfig = async (clientName) => {
         throw error;
     }
 };
+
+//доработал
