@@ -167,7 +167,8 @@ exports.handleApprove = async (ctx) => {
                     `🎉 *Платёж подтверждён!* 🎉\n\n` +
                     `Доступ к VPN активен до *${escapeMarkdown(formatDate(newExpireDate, true))}*\n\n` +
                     `📁 Ваш файл конфигурации VPN и видеоинструкция отправлены ниже. \n\n` +
-                    `Не забудьте скачать приложение Wireguard с Google Play https://play.google.com/store/apps/details?id=com.wireguard.android \n\n` +
+                    `Не забудьте скачать приложение AmneziaWG с Google Play https://play.google.com/store/apps/details?id=org.amnezia.awg \n\n` +
+                    `Не забудьте скачать приложение AmneziaWG с Apple Store https://apps.apple.com/app/id6478942365 \n\n` +
                     `Скачайте файл конфигурации и следуйте видеоинструкции ниже для настройки VPN`,
                     { parse_mode: 'Markdown' }
                 );

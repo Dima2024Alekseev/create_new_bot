@@ -343,7 +343,8 @@ exports.handleTrialRequest = async (ctx) => {
 
         await ctx.reply(
             '🆓 *Пробный доступ выдан на 1 час!*\n\n' +
-            'Не забудьте скачать приложение Wireguard с Google Play https://play.google.com/store/apps/details?id=com.wireguard.android\n' +
+            `Не забудьте скачать приложение AmneziaWG с Google Play https://play.google.com/store/apps/details?id=org.amnezia.awg \n\n` +
+            `Не забудьте скачать приложение AmneziaWG с Apple Store https://apps.apple.com/app/id6478942365 \n\n` +
             'Скачайте файл конфигурации и следуйте видеоинструкции выше для настройки VPN. Через 1 час доступ отключится автоматически.\n\n' +
             'Если всё понравится, оплатите полную подписку в меню (/start).',
             { parse_mode: 'Markdown' }
